@@ -113,7 +113,10 @@ source $ZSH/oh-my-zsh.sh
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-eval $(thefuck --alias)
+# If thefuck is installed, alias it. Otherwise, do nothing.
+if [[ -x "$(command -v thefuck)" ]]; then
+    eval $(thefuck --alias)
+fi
 
 ## THIS SHOULDN'T HAVE TO BE HERE. See https://github.com/zsh-users/zsh-completions/issues/684
 compinit
