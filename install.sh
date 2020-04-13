@@ -36,9 +36,9 @@ echo
 echo "==> Directory setup"
 
 # Check for config dir and make it if it doesn't exist
-if ! [ -d $HOME/.config ]; then
+if ! [ -d $HOME/.config/neofetch ]; then
     echo "config dir doesn't exist; making"
-	mkdir $HOME/.config
+	mkdir -p $HOME/.config/neofetch
 else
     echo "config dir already exists; skipping"
 fi
