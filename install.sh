@@ -1,7 +1,6 @@
 #!/bin/sh
 
 # OS detection
-
 unameOut="$(uname -s)"
 case "${unameOut}" in
     Linux*)     machine=Linux;;
@@ -12,11 +11,10 @@ case "${unameOut}" in
 esac
 
 # If we're on macOS...
-
 echo "==> Mac specific stuff"
 
 if [ "$machine" == "Mac" ]; then
-    echo "We're on a Mac... checking homebrew..."
+    echo "We're on a Mac... checking homebrew and neofetch..."
     ## Install homebrew
     if ! [[ -x "$(command -v brew)" ]]; then
         echo "homebrew not installed yet; installing"
@@ -24,7 +22,6 @@ if [ "$machine" == "Mac" ]; then
     else
         echo "homebrew already installed; skipping"
     fi
-    echo
     ## Install neofetch
     if ! [[ -x "$(command -v neofetch)" ]]; then
         echo "neofetch not installed yet; installing"
@@ -35,14 +32,19 @@ if [ "$machine" == "Mac" ]; then
 fi
 echo
 
+# directory setup portion
 echo "==> Directory setup"
 
 # Check for config dir and make it if it doesn't exist
 if ! [ -d $HOME/.config ]; then
     echo "config dir doesn't exist; making"
 	mkdir $HOME/.config
+else
+    echo "config dir already exists; skipping"
 fi
+echo
 
+# zsh portion
 echo "==> zsh"
 
 # Install oh my zsh
@@ -70,7 +72,6 @@ if ! [ -d $HOME/.oh-my-zsh/custom/themes/powerlevel10k ]; then
 else
     echo "p10k already installed; skipping"
 fi
-echo
 
 # Link p10k config
 if [ -w $HOME/.p10k.zsh ]; then
@@ -105,6 +106,9 @@ fi
 echo
 
 # Link neofetch config, if installed
+
+echo "==> neofetch"
+
 if [[ -x "$(command -v neofetch)" ]]; then
     if [ -w $HOME/.config/neofetch/config.conf ]; then
         echo "neofetch config already exists; backing up..."
