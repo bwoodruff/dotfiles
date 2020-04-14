@@ -143,5 +143,9 @@ alias egrep='egrep --color=auto'
 
 test -r "~/.dir_colors" && eval $(dircolors ~/.dir_colors)
 
+# vim all the things
+
+bindkey -v
+
 ## THIS SHOULDN'T HAVE TO BE HERE. See https://github.com/zsh-users/zsh-completions/issues/684
 compinit

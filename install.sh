@@ -124,6 +124,10 @@ fi
 
 echo
 
+# lscolors
+
+ln -s $HOME/dotfiles/dir_colors/.dir_colors $HOME/.dir_colors
+
 # Link neofetch config, if installed
 
 echo "==> neofetch"

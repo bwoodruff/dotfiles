@@ -10,7 +10,14 @@ Plug 'airblade/vim-gitgutter'
 Plug 'Yggdroot/indentLine'
 Plug 'itchyny/lightline.vim'
 Plug 'tpope/vim-fugitive'
+Plug 'ryanoasis/vim-devicons'
 call plug#end()
+
+set clipboard=unnamed               " ┐
+                                    " │ Use the system clipboard
+if has('unnamedplus')               " │ as the default register.
+    set clipboard+=unnamedplus      " │
+endif                               " ┘
 
 "+--- Yggdroot/indentLine ---+
 let g:indentLine_enabled = 0
@@ -111,10 +118,16 @@ set fileencodings=utf-8
 set ttyfast
 set viminfo=
 set updatetime=250
+set mouse=a
+set scrolloff=5
 
-"if has("gui_running")
-  set mouse=a
-"endif
+if has('virtualedit')
+    set virtualedit=all             " Allow cursor to be anywhere.
+endif
+
+set visualbell                      " ┐
+set noerrorbells                    " │ Disable beeping and window flashing.
+set t_vb=                           " ┘ https://vim.wikia.com/wiki/Disable_beeping
 
 "+----+
 "+ UI +
@@ -129,12 +142,9 @@ set termguicolors
 set hidden
 set laststatus=2
 set lazyredraw
-set noerrorbells
 set noshowmode
-set novisualbell
 set number
 set ruler
-set t_vb=
 set tm=500
 set wildmenu
 set wildignore=*~,*.pyc
@@ -156,15 +166,15 @@ set linebreak
 set listchars=eol:¬,space:·,tab:»\
 set magic
 set mat=2
-set shiftwidth=2
+set shiftwidth=4
 set showmatch
 
 " Toggle the sign column automatically when there are signs available to display.
 set signcolumn=auto
 set smartindent
 set smarttab
-set softtabstop=2
-set tabstop=2
+set softtabstop=4
+set tabstop=4
 set textwidth=160
 
 " Automatically wrap left and right.
