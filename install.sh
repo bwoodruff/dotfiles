@@ -23,6 +23,7 @@ if [ "$machine" == "Mac" ]; then
         echo "homebrew already installed; skipping"
     fi
     ## Install neofetch
+    ### THIS SHOULD BE MOVED OUT INTO IT'S OWN BLOCK WITH PACKAGE MANAGER DETECTION, RATHER THAN OS DETECTION
     if ! [[ -x "$(command -v neofetch)" ]]; then
         echo "neofetch not installed yet; installing"
         brew install neofetch
@@ -101,6 +102,24 @@ if ! [ -d ${ZSH_CUSTOM:=~/.oh-my-zsh/custom}/plugins/zsh-completions ]; then
     git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:=~/.oh-my-zsh/custom}/plugins/zsh-completions
 else
     echo "zsh-completions already installed; skipping"
+fi
+
+echo
+
+# git config
+
+echo "==> git config"
+
+if [[ -x "$(command -v git)" ]]; then
+    echo "git is installed. checking for vim."
+    if [[ -x "$(command -v vim)" ]]; then
+        echo "vim is installed. setting git editor to vim."
+        git config core.editor "vim"
+    else
+        echo "vim is not installed. skipping."
+    fi
+else
+    echo "git is not installed. skipping."
 fi
 
 echo
