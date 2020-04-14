@@ -114,7 +114,7 @@ if [[ -x "$(command -v git)" ]]; then
     echo "git is installed. checking for vim."
     if [[ -x "$(command -v vim)" ]]; then
         echo "vim is installed. setting git editor to vim."
-        git config core.editor "vim"
+        git config --global core.editor "vim"
     else
         echo "vim is not installed. skipping."
     fi
