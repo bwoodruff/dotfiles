@@ -129,7 +129,7 @@ esac
 # ALIASES
 
 # stupid hack for macOS
-if [ "$machine" == "Mac" ]; then
+if [[ "$machine" == "Mac" ]]; then
     alias ls='ls -GFh'
 else
     alias ls='ls -GFh --color=auto'
