@@ -112,9 +112,9 @@ set ttyfast
 set viminfo=
 set updatetime=250
 
-if has("gui_running")
+"if has("gui_running")
   set mouse=a
-endif
+"endif
 
 "+----+
 "+ UI +

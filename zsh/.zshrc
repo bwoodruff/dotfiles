@@ -116,12 +116,32 @@ if [[ -x "$(command -v thefuck)" ]]; then
     eval $(thefuck --alias)
 fi
 
+# OS detection
+unameOut="$(uname -s)"
+case "${unameOut}" in
+    Linux*)     machine=Linux;;
+    Darwin*)    machine=Mac;;
+    CYGWIN*)    machine=Cygwin;;
+    MINGW*)     machine=MinGw;;
+    *)          machine="UNKNOWN:${unameOut}"
+esac
+
 # ALIASES
 
-alias ls='ls -GFh'
+# stupid hack for macOS
+if [ "$machine" == "Mac" ]; then
+    alias ls='ls -GFh'
+else
+    alias ls='ls -GFh --color=auto'
+fi
+
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'
 alias egrep='egrep --color=auto'
+
+#COLORS
+
+test -r "~/.dir_colors" && eval $(dircolors ~/.dir_colors)
 
 ## THIS SHOULDN'T HAVE TO BE HERE. See https://github.com/zsh-users/zsh-completions/issues/684
 compinit
