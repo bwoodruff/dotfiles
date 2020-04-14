@@ -116,5 +116,12 @@ if [[ -x "$(command -v thefuck)" ]]; then
     eval $(thefuck --alias)
 fi
 
+# ALIASES
+
+alias ls='ls -GFh'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
 ## THIS SHOULDN'T HAVE TO BE HERE. See https://github.com/zsh-users/zsh-completions/issues/684
 compinit
