@@ -12,7 +12,6 @@ esac
 
 # If we're on macOS...
 echo "==> Mac specific stuff"
-
 if [ "$machine" == "Mac" ]; then
     echo "We're on a Mac... checking homebrew and neofetch..."
     ## Install homebrew
@@ -35,8 +34,6 @@ echo
 
 # directory setup portion
 echo "==> Directory setup"
-
-# Check for config dir and make it if it doesn't exist
 if ! [ -d $HOME/.config/neofetch ]; then
     echo "config dir doesn't exist; making"
 	mkdir -p $HOME/.config/neofetch
@@ -84,7 +81,6 @@ ln -s $HOME/dotfiles/zsh/.p10k.zsh $HOME/.p10k.zsh
 echo
 
 # Install zsh plugins
-
 echo "Installing zsh plugins"
 
 ## zsh-syntax-highlighting
@@ -103,13 +99,10 @@ if ! [ -d ${ZSH_CUSTOM:=~/.oh-my-zsh/custom}/plugins/zsh-completions ]; then
 else
     echo "zsh-completions already installed; skipping"
 fi
-
 echo
 
 # git config
-
 echo "==> git config"
-
 if [[ -x "$(command -v git)" ]]; then
     echo "git is installed. checking for vim."
     if [[ -x "$(command -v vim)" ]]; then
@@ -121,17 +114,30 @@ if [[ -x "$(command -v git)" ]]; then
 else
     echo "git is not installed. skipping."
 fi
-
 echo
 
 # lscolors
+echo "==> lscolors"
+if [ -w $HOME/.dir_colors ]; then
+    echo "dir_colors config already exists; backing up..."
+    mv -f $HOME/.dir_colors $HOME/.dir_colors.old
+fi
+echo "Linking dir_colors config"
+    ln -s $HOME/dotfiles/dir_colors/.dir_colors $HOME/.dir_colors
+echo
 
-ln -s $HOME/dotfiles/dir_colors/.dir_colors $HOME/.dir_colors
+# vim config
+echo "==> vim"
+if [ -w $HOME/.vimrc ]; then
+    echo "vim config already exists; backing up..."
+    mv -f $HOME/.vimrc $HOME/.vimrc.old
+fi
+echo "Linking vim config"
+    ln -s $HOME/dotfiles/vim/.vimrc $HOME/.vimrc
+echo
 
-# Link neofetch config, if installed
-
+# Link neofetch config, if installed, and install if not
 echo "==> neofetch"
-
 if [[ -x "$(command -v neofetch)" ]]; then
     if [ -w $HOME/.config/neofetch/config.conf ]; then
         echo "neofetch config already exists; backing up..."
@@ -139,7 +145,6 @@ if [[ -x "$(command -v neofetch)" ]]; then
     fi
     echo "Linking neofetch config"
     ln -s $HOME/dotfiles/neofetch/config.conf $HOME/.config/neofetch/config.conf
-    
     echo "Running neofetch..."
     echo
     neofetch
