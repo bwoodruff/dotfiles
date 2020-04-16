@@ -21,6 +21,9 @@ if [ "$machine" == "Mac" ]; then
     else
         echo "homebrew already installed; skipping"
     fi
+    echo "fixing homebrew permissions so compinit doesn't complain..."
+    chmod go-w "$(brew --prefix)/share"
+    echo
     ## Install neofetch
     ### THIS SHOULD BE MOVED OUT INTO IT'S OWN BLOCK WITH PACKAGE MANAGER DETECTION, RATHER THAN OS DETECTION
     if ! [[ -x "$(command -v neofetch)" ]]; then
