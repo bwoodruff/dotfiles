@@ -6,6 +6,7 @@ endif
 
 call plug#begin('~/.vim/plugged')
 Plug 'arcticicestudio/nord-vim'
+Plug 'kamykn/spelunker.vim'
 Plug 'airblade/vim-gitgutter'
 Plug 'Yggdroot/indentLine'
 Plug 'itchyny/lightline.vim'
@@ -18,6 +19,7 @@ set clipboard=unnamed               " ┐
 if has('unnamedplus')               " │ as the default register.
     set clipboard+=unnamedplus      " │
 endif                               " ┘
+
 
 "+--- Yggdroot/indentLine ---+
 let g:indentLine_enabled = 0
@@ -109,6 +111,7 @@ set pastetoggle=<F3>
 set autochdir
 set binary
 set nobackup
+set nowritebackup
 set nocompatible
 set noswapfile
 set nowb
@@ -121,9 +124,9 @@ set updatetime=250
 set mouse=a
 set scrolloff=5
 
-if has('virtualedit')
-    set virtualedit=all             " Allow cursor to be anywhere.
-endif
+"if has('virtualedit')
+"    set virtualedit=all             " Allow cursor to be anywhere.
+"endif
 
 set visualbell                      " ┐
 set noerrorbells                    " │ Disable beeping and window flashing.
@@ -132,6 +135,11 @@ set t_vb=                           " ┘ https://vim.wikia.com/wiki/Disable_bee
 "+----+
 "+ UI +
 "+----+
+
+" autocmd InsertEnter * norm zz
+
+set splitbelow splitright
+
 set ffs=unix,dos,mac
 set gfn=Source\ Code\ Pro\ Regular\ 12
 set guioptions-=m
@@ -143,9 +151,11 @@ set hidden
 set laststatus=2
 set lazyredraw
 set noshowmode
-set number
+set number relativenumber
 set ruler
 set tm=500
+
+set wildmode=longest,list,full
 set wildmenu
 set wildignore=*~,*.pyc
 set wildignore+=*/.git/*,*/.hg/*,*/.svn/*
@@ -156,6 +166,7 @@ set shortmess=F
 set autoindent
 set backspace=indent,eol,start
 set cursorline
+set cursorcolumn
 set colorcolumn=160
 set expandtab
 set foldcolumn=1
@@ -187,3 +198,21 @@ set ignorecase
 set smartcase
 set hlsearch
 set incsearch
+
+" highlight CursorLine guibg=#000000
+" highlight CursorColumn guibg=#000000
+
+" Spell checking
+set nospell
+let g:enable_spelunker_vim = 1
+highlight SpelunkerSpellBad cterm=underline ctermfg=247 gui=underline guifg=#9e9e9e
+highlight SpelunkerComplexOrCompoundWord cterm=underline ctermfg=NONE gui=underline guifg=NONE
+let g:spelunker_check_type = 2
+let g:spelunker_highlight_type = 1
+augroup spelunker
+  autocmd!
+  " Setting for g:spelunker_check_type = 1:
+  autocmd BufWinEnter,BufWritePost *.vim,*.js,*.jsx,*.json,*.md call spelunker#check()
+  " Setting for g:spelunker_check_type = 2:
+  autocmd CursorHold *.vim,*.js,*.jsx,*.json,*.md call spelunker#check_displayed_words()
+augroup END
