@@ -24,13 +24,13 @@ if [ "$machine" == "Mac" ]; then
     echo "fixing homebrew permissions so compinit doesn't complain..."
     chmod go-w "$(brew --prefix)/share"
     echo
-    ## Install neofetch
+    ## Install fastfetch
     ### THIS SHOULD BE MOVED OUT INTO IT'S OWN BLOCK WITH PACKAGE MANAGER DETECTION, RATHER THAN OS DETECTION
-    if ! [[ -x "$(command -v neofetch)" ]]; then
-        echo "neofetch not installed yet; installing"
-        brew install neofetch
+    if ! [[ -x "$(command -v fastfetch)" ]]; then
+        echo "fastfetch not installed yet; installing"
+        brew install fastfetch
     else
-        echo "neofetch already installed; skipping"
+        echo "fastfetch already installed; skipping"
     fi
 fi
 echo
@@ -140,15 +140,15 @@ echo "Linking vim config"
 echo
 
 # Link neofetch config, if installed, and install if not
-echo "==> neofetch"
-if [[ -x "$(command -v neofetch)" ]]; then
+echo "==> fastfetch"
+if [[ -x "$(command -v fastfetch)" ]]; then
     if [ -w $HOME/.config/neofetch/config.conf ]; then
         echo "neofetch config already exists; backing up..."
         mv -f $HOME/.config/neofetch/config.conf $HOME/.config/neofetch/config.conf.old
     fi
-    echo "Linking neofetch config"
-    ln -s $HOME/dotfiles/neofetch/config.conf $HOME/.config/neofetch/config.conf
-    echo "Running neofetch..."
+    echo "Linking fastfetch config"
+    ln -s $HOME/dotfiles/fastfetch/config.conf $HOME/.config/fastfetch/config.conf
+    echo "Running fastfetch..."
     echo
-    neofetch
+    fastfetch
 fi
