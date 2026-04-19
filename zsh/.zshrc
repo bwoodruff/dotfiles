@@ -131,6 +131,8 @@ esac
 
 # ALIASES
 
+alias neofetch='fastfetch'
+
 # stupid hack for macOS
 if [[ "$machine" == "Mac" ]]; then
     alias ls='ls -GFh'
