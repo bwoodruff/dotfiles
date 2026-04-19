@@ -103,7 +103,7 @@ augroup END
 "+ Configuration +
 "+---------------+
 syntax enable
-colorscheme nord
+silent! colorscheme nord
 
 filetype plugin on
 filetype indent on

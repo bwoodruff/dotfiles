@@ -196,21 +196,21 @@ brew_formula_installed() {
 
 ensure_command() {
     local command_name="$1"
-    local formula_name="$2"
+    local package_name="$2"
 
     if [ "$PLATFORM" = "mac" ]; then
         if [ "$FORCE_BREW" = "1" ]; then
             if ! homebrew_available; then
-                warn "Homebrew unavailable; cannot force-install $formula_name"
+                warn "Homebrew unavailable; cannot force-install $package_name"
                 return
             fi
 
-            if brew_formula_installed "$formula_name"; then
-                info "Homebrew formula already installed; skipping: $formula_name"
+            if brew_formula_installed "$package_name"; then
+                info "Homebrew formula already installed; skipping: $package_name"
                 SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
             else
-                info "FORCE_BREW=1, installing via Homebrew: $formula_name"
-                run_cmd brew install "$formula_name"
+                info "FORCE_BREW=1, installing via Homebrew: $package_name"
+                run_cmd brew install "$package_name"
                 INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
             fi
             return
@@ -225,8 +225,8 @@ ensure_command() {
                 return
             fi
 
-            info "Command missing; installing via Homebrew: $formula_name"
-            run_cmd brew install "$formula_name"
+            info "Command missing; installing via Homebrew: $package_name"
+            run_cmd brew install "$package_name"
             INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
         fi
         return
@@ -240,8 +240,8 @@ ensure_command() {
         fi
 
         if command_exists apt-get; then
-            info "Command missing; installing via apt: $formula_name"
-            run_cmd sudo apt-get install -y "$formula_name"
+            info "Command missing; installing via apt: $package_name"
+            run_cmd sudo apt-get install -y "$package_name"
             INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
         else
             warn "No supported package manager configured for missing command: $command_name"
@@ -302,6 +302,57 @@ clone_repo_if_missing() {
     fi
 
     CLONED_REPOS=$((CLONED_REPOS + 1))
+}
+
+#######################################
+# Vim plugin management
+#######################################
+
+install_vim_plug() {
+    local plug_path="${HOME}/.vim/autoload/plug.vim"
+
+    if [ -f "$plug_path" ]; then
+        info "vim-plug already installed; skipping: $plug_path"
+        return
+    fi
+
+    info "Installing vim-plug: $plug_path"
+    ensure_dir "$(dirname "$plug_path")"
+    run_cmd curl -fLo "$plug_path" --create-dirs \
+        https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+}
+
+install_vim_plugins() {
+    local vim_log="${HOME}/.vim/plug-install.log"
+
+    if ! command_exists vim; then
+        info "vim not available; skipping Vim plugin installation"
+        return
+    fi
+
+    if [ ! -f "${HOME}/.vimrc" ]; then
+        info ".vimrc not found; skipping Vim plugin installation"
+        return
+    fi
+
+    if [ ! -f "${HOME}/.vim/autoload/plug.vim" ]; then
+        info "vim-plug not found; skipping Vim plugin installation"
+        return
+    fi
+
+    ensure_dir "${HOME}/.vim"
+
+    info "Installing Vim plugins with vim-plug"
+    info "Logging Vim plugin output to: ${vim_log}"
+
+    if vim -V1"${vim_log}" -E -s -u "${HOME}/.vimrc" \
+        "+PlugInstall --sync" \
+        "+qa!"; then
+        info "Vim plugins installed successfully"
+    else
+        warn "Vim plugin installation failed"
+        info "See log: ${vim_log}"
+    fi
 }
 
 #######################################
@@ -450,6 +501,12 @@ for link_spec in "${SYMLINKS[@]}"; do
     IFS='|' read -r source target optional <<< "$link_spec"
     link_file "$source" "$target" "$optional"
 done
+
+log "Vim plugin manager"
+install_vim_plug
+
+log "Vim plugins"
+install_vim_plugins
 
 log "Fonts"
 install_fonts
