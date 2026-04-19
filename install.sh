@@ -37,12 +37,22 @@ echo
 
 # directory setup portion
 echo "==> Directory setup"
-if ! [ -d $HOME/.config/neofetch ]; then
+if ! [ -d $HOME/.config/ ]; then
     echo "config dir doesn't exist; making"
-	mkdir -p $HOME/.config/neofetch
+	mkdir -p $HOME/.config/
 else
     echo "config dir already exists; skipping"
 fi
+echo
+
+# Link alacritty
+echo "==> Alacritty config (download & install from GitHub)"
+if [ -w $HOME/.config/alacritty/alacritty.toml ]; then
+    echo "alacritty config already exists; backing up..."
+    mv -f $HOME/.config/alacritty/alacritty.toml $HOME/.config/alacritty/alacritty.toml.old
+fi
+echo "Linking zsh config"
+ln -s $HOME/dotfiles/alacritty/alacritty.toml $HOME/.config/alacritty/alacritty.toml
 echo
 
 # zsh portion
