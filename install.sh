@@ -149,12 +149,12 @@ echo "Linking vim config"
     ln -s $HOME/dotfiles/vim/.vimrc $HOME/.vimrc
 echo
 
-# Link neofetch config, if installed, and install if not
+# Link fastfetch config
 echo "==> fastfetch"
 if [[ -x "$(command -v fastfetch)" ]]; then
     if [ -w $HOME/.config/neofetch/config.conf ]; then
-        echo "neofetch config already exists; backing up..."
-        mv -f $HOME/.config/neofetch/config.conf $HOME/.config/neofetch/config.conf.old
+        echo "fastfetch config already exists; backing up..."
+        mv -f $HOME/.config/fastfetch/config.conf $HOME/.config/fastfetch/config.conf.old
     fi
     echo "Linking fastfetch config"
     ln -s $HOME/dotfiles/fastfetch/config.conf $HOME/.config/fastfetch/config.conf
@@ -163,11 +163,18 @@ if [[ -x "$(command -v fastfetch)" ]]; then
     fastfetch
 fi
 
-# Install tmux
+# Install tmux and link config
 echo "==> tmux"
+mkdir -p $HOME/.config/tmux/
 if ! [[ -x "$(command -v tmux)" ]]; then
 	echo "tmux not installed yet; installing"
 	brew install tmux
 else
 	echo "tmux already installed; skipping"
 fi
+if [ -w $HOME/.config/tmux/tmux.conf ]; then
+	echo "tmux config already exists; backing up..."
+	mv -f $HOME/.config/tmux/tmux.conf $HOME/.config/tmux/tmux.conf.old
+fi
+echo "Linking tmux config"
+ln -s $HOME/dotfiles/tmux/tmux.conf $HOME/.config/tmux/tmux.conf
