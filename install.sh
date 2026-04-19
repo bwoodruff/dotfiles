@@ -152,3 +152,12 @@ if [[ -x "$(command -v fastfetch)" ]]; then
     echo
     fastfetch
 fi
+
+# Install tmux
+echo "==> tmux"
+if ! [[ -x "$(command -v tmux)" ]]; then
+	echo "tmux not installed yet; installing"
+	brew install tmux
+else
+	echo "tmux already installed; skipping"
+fi
