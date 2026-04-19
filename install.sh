@@ -51,7 +51,7 @@ if [ -w $HOME/.config/alacritty/alacritty.toml ]; then
     echo "alacritty config already exists; backing up..."
     mv -f $HOME/.config/alacritty/alacritty.toml $HOME/.config/alacritty/alacritty.toml.old
 fi
-echo "Linking zsh config"
+echo "Linking alacritty config"
 ln -s $HOME/dotfiles/alacritty/alacritty.toml $HOME/.config/alacritty/alacritty.toml
 echo
 
