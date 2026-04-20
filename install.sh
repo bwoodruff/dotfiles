@@ -181,6 +181,13 @@ TAG_WARN="[WARN]"
 TAG_FAIL="[FAIL]"
 TAG_INFO="[INFO]"
 
+PROGRESS_UI_ENABLED=0
+PROGRESS_TOTAL=0
+PROGRESS_CURRENT=0
+PROGRESS_TITLE="Bootstrap"
+CURRENT_NR_LINES=0
+CURRENT_NR_COLS=0
+
 #######################################
 # Logging bootstrap
 #######################################
@@ -206,12 +213,47 @@ append_log() {
 # Terminal / display helpers
 #######################################
 
+get_term_lines() {
+    local lines=""
+
+    if [ -r /dev/tty ]; then
+        lines="$(stty size </dev/tty 2>/dev/null | awk '{print $1}')"
+    fi
+
+    if [ -z "$lines" ] && [ -n "${LINES:-}" ]; then
+        lines="$LINES"
+    fi
+
+    if [ -z "$lines" ]; then
+        lines="$(tput lines 2>/dev/null || echo 24)"
+    fi
+
+    if [ -z "$lines" ] || [ "$lines" -lt 10 ]; then
+        lines=24
+    fi
+
+    printf '%s\n' "$lines"
+}
+
 get_term_width() {
-    local cols
-    cols="$(tput cols 2>/dev/null || echo 80)"
+    local cols=""
+
+    if [ -r /dev/tty ]; then
+        cols="$(stty size </dev/tty 2>/dev/null | awk '{print $2}')"
+    fi
+
+    if [ -z "$cols" ] && [ -n "${COLUMNS:-}" ]; then
+        cols="$COLUMNS"
+    fi
+
+    if [ -z "$cols" ]; then
+        cols="$(tput cols 2>/dev/null || echo 80)"
+    fi
+
     if [ -z "$cols" ] || [ "$cols" -lt 40 ]; then
         cols=80
     fi
+
     printf '%s\n' "$cols"
 }
 
@@ -232,6 +274,102 @@ print_rule() {
     cols="$(get_term_width)"
     repeat_char "$char" "$cols"
     printf '\n'
+}
+
+#######################################
+# Persistent progress bar
+#######################################
+
+prepare_interactive_screen() {
+    if [ "$QUIET" = "1" ] || [ "$SCHEDULED" = "1" ] || [ ! -t 1 ]; then
+        return 0
+    fi
+
+    clear
+}
+
+progress_ui_enabled() {
+    [ "$QUIET" != "1" ] && [ "$SCHEDULED" != "1" ] && [ -t 1 ]
+}
+
+progress_setup() {
+    progress_ui_enabled || return 0
+
+    shopt -s checkwinsize 2>/dev/null || true
+
+    PROGRESS_UI_ENABLED=1
+    PROGRESS_TOTAL="$TOTAL_SECTIONS"
+    PROGRESS_CURRENT=0
+    PROGRESS_TITLE="Bootstrap"
+
+    CURRENT_NR_LINES="$(get_term_lines)"
+    CURRENT_NR_COLS="$(get_term_width)"
+
+    local lines
+    lines="$CURRENT_NR_LINES"
+
+    printf '\n'
+    tput sc 2>/dev/null || true
+    printf '\033[1;%sr' "$((lines - 1))"
+    tput rc 2>/dev/null || true
+
+    progress_draw
+}
+
+progress_destroy() {
+    [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
+
+    local lines
+    lines="$CURRENT_NR_LINES"
+
+    tput sc 2>/dev/null || true
+    tput cup $((lines - 1)) 0 2>/dev/null || true
+    tput el 2>/dev/null || true
+    printf '\033[0;%sr' "$lines"
+    tput rc 2>/dev/null || true
+
+    PROGRESS_UI_ENABLED=0
+}
+
+progress_draw() {
+    [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
+
+    local cols lines label counter reserved width filled empty
+    cols="$CURRENT_NR_COLS"
+    lines="$CURRENT_NR_LINES"
+
+    label="${PROGRESS_TITLE} "
+    counter=" ${PROGRESS_CURRENT}/${PROGRESS_TOTAL}"
+    reserved=$(( ${#label} + ${#counter} + 3 ))
+    width=$(( cols - reserved ))
+    if [ "$width" -lt 10 ]; then
+        width=10
+    fi
+
+    if [ "$PROGRESS_TOTAL" -gt 0 ]; then
+        filled=$(( PROGRESS_CURRENT * width / PROGRESS_TOTAL ))
+    else
+        filled=0
+    fi
+    empty=$(( width - filled ))
+
+    tput sc 2>/dev/null || true
+    tput cup $((lines - 1)) 0 2>/dev/null || true
+    tput el 2>/dev/null || true
+
+    printf '%s%s%s ' "${C_BOLD}${C_CYAN}" "$PROGRESS_TITLE" "${C_RESET}"
+    printf '%s[' "${C_MAGENTA}"
+    repeat_char '█' "$filled"
+    repeat_char '░' "$empty"
+    printf ']%s %d/%d' "${C_RESET}" "$PROGRESS_CURRENT" "$PROGRESS_TOTAL"
+
+    tput rc 2>/dev/null || true
+}
+
+progress_advance() {
+    [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
+    PROGRESS_CURRENT="$CURRENT_SECTION"
+    progress_draw
 }
 
 #######################################
@@ -281,78 +419,27 @@ print_error() {
 }
 
 #######################################
-# Sections / progress / spinner
+# Sections / spinner
 #######################################
-
-render_progress_bar() {
-    local current="$1"
-    local total="$2"
-    local cols
-    local reserved
-    local width
-    local filled=0
-    local empty=0
-
-    cols="$(get_term_width)"
-    reserved=10
-    width=$(( cols - reserved ))
-
-    if [ "$width" -lt 20 ]; then
-        width=20
-    fi
-
-    if [ "$total" -gt 0 ]; then
-        filled=$(( current * width / total ))
-    fi
-    empty=$(( width - filled ))
-
-    printf '%s[' "${C_MAGENTA}"
-    repeat_char '█' "$filled"
-    repeat_char '░' "$empty"
-    printf ']%s %d/%d\n' "${C_RESET}" "$current" "$total"
-}
 
 start_section() {
     local title="$1"
-    local cols
-    local title_text
-    local title_len
-    local side_len
-    local left
-    local right
 
     CURRENT_SECTION=$((CURRENT_SECTION + 1))
 
-    cols="$(get_term_width)"
-    title_text="  ${title}  "
-    title_len=${#title_text}
-    side_len=$(( (cols - title_len) / 2 ))
-
-    if [ "$side_len" -lt 2 ]; then
-        side_len=2
-    fi
-
-    left="$(repeat_char '━' "$side_len")"
-    right="$(repeat_char '━' "$side_len")"
-
     if [ "$QUIET" != "1" ]; then
-        printf '\n%s%s%s%s%s\n\n' \
+        printf '\n%s──[%s %s %s]──%s\n\n' \
             "${C_BOLD}${C_CYAN}" \
-            "$left" \
-            "$title_text" \
-            "$right" \
+            "${C_WHITE}" \
+            "$title" \
+            "${C_CYAN}" \
             "${C_RESET}"
     fi
 
     append_log ""
     append_log "━━ $title [$(timestamp)]"
-}
 
-end_section() {
-    if [ "$QUIET" != "1" ]; then
-        printf '\n'
-        render_progress_bar "$CURRENT_SECTION" "$TOTAL_SECTIONS"
-    fi
+    progress_advance
 }
 
 spinner_run() {
@@ -419,6 +506,7 @@ spinner_run() {
 #######################################
 
 cleanup() {
+    progress_destroy
     rm -rf "$LOCK_DIR"
 }
 
@@ -530,6 +618,71 @@ link_file() {
 # Package managers
 #######################################
 
+upgrade_packages() {
+    if [ "$UPGRADE_PACKAGES" != "1" ]; then
+        print_skip "Package upgrades disabled"
+        return 0
+    fi
+
+    case "$PLATFORM" in
+        mac)
+            if homebrew_available; then
+                spinner_run "brew update" brew update || print_warn "brew update failed"
+
+                local outdated_count=0
+                outdated_count="$(brew outdated --quiet 2>/dev/null | wc -l | tr -d ' ')"
+
+                if [ "${outdated_count:-0}" -gt 0 ]; then
+                    if spinner_run "brew upgrade" brew upgrade; then
+                        UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + outdated_count))
+                    else
+                        print_warn "brew upgrade failed"
+                    fi
+                else
+                    print_skip "No Homebrew packages need upgrading"
+                fi
+            else
+                print_warn "Homebrew unavailable; skipping upgrades"
+            fi
+            ;;
+        linux)
+            if apt_available; then
+                spinner_run "apt-get update" sudo apt-get update || print_warn "apt-get update failed"
+
+                local upgrade_count=0
+                upgrade_count="$(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')"
+
+                if [ "${upgrade_count:-0}" -gt 0 ]; then
+                    if spinner_run "apt-get upgrade" sudo apt-get upgrade -y; then
+                        UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + upgrade_count))
+                    else
+                        print_warn "apt-get upgrade failed"
+                    fi
+                else
+                    print_skip "No apt packages need upgrading"
+                fi
+            elif dnf_available; then
+                if spinner_run "dnf upgrade" sudo dnf upgrade -y; then
+                    :
+                else
+                    print_warn "dnf upgrade failed"
+                fi
+            elif pacman_available; then
+                if spinner_run "pacman -Syu" sudo pacman -Syu --noconfirm; then
+                    :
+                else
+                    print_warn "pacman upgrade failed"
+                fi
+            else
+                print_warn "No supported Linux package manager found for upgrade"
+            fi
+            ;;
+        *)
+            print_skip "Package upgrade not implemented for platform: $PLATFORM"
+            ;;
+    esac
+}
+
 install_homebrew_if_needed() {
     if [ "$PLATFORM" != "mac" ]; then
         print_skip "Not macOS; skipping Homebrew setup"
@@ -550,39 +703,6 @@ install_homebrew_if_needed() {
             spinner_run "Fix Homebrew permissions" chmod go-w "$brew_share" || print_warn "Could not adjust Homebrew permissions"
         fi
     fi
-}
-
-upgrade_packages() {
-    if [ "$UPGRADE_PACKAGES" != "1" ]; then
-        print_skip "Package upgrades disabled"
-        return 0
-    fi
-
-    case "$PLATFORM" in
-        mac)
-            if homebrew_available; then
-                spinner_run "brew update" brew update && UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)) || print_warn "brew update failed"
-                spinner_run "brew upgrade" brew upgrade && UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)) || print_warn "brew upgrade failed"
-            else
-                print_warn "Homebrew unavailable; skipping upgrades"
-            fi
-            ;;
-        linux)
-            if apt_available; then
-                spinner_run "apt-get update" sudo apt-get update && UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)) || print_warn "apt-get update failed"
-                spinner_run "apt-get upgrade" sudo apt-get upgrade -y && UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)) || print_warn "apt-get upgrade failed"
-            elif dnf_available; then
-                spinner_run "dnf upgrade" sudo dnf upgrade -y && UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)) || print_warn "dnf upgrade failed"
-            elif pacman_available; then
-                spinner_run "pacman -Syu" sudo pacman -Syu --noconfirm && UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)) || print_warn "pacman upgrade failed"
-            else
-                print_warn "No supported Linux package manager found for upgrade"
-            fi
-            ;;
-        *)
-            print_skip "Package upgrade not implemented for platform: $PLATFORM"
-            ;;
-    esac
 }
 
 ensure_command() {
@@ -829,17 +949,21 @@ install_alacritty_macos() {
     mount_point="${tmp_dir}/mnt"
     mkdir -p "$mount_point"
 
-    spinner_run "Download Alacritty DMG" curl -fL "$dmg_url" -o "$dmg_path" || {
+    if spinner_run "Download Alacritty DMG" curl -fL "$dmg_url" -o "$dmg_path"; then
+        :
+    else
         rm -rf "$tmp_dir"
         print_error "Could not download Alacritty DMG"
         return 1
-    }
+    fi
 
-    spinner_run "Mount Alacritty DMG" hdiutil attach -nobrowse -quiet -mountpoint "$mount_point" "$dmg_path" || {
+    if spinner_run "Mount Alacritty DMG" hdiutil attach -nobrowse -quiet -mountpoint "$mount_point" "$dmg_path"; then
+        :
+    else
         rm -rf "$tmp_dir"
         print_error "Could not mount Alacritty DMG"
         return 1
-    }
+    fi
 
     app_source="$(find "$mount_point" -maxdepth 2 -name 'Alacritty.app' -type d | head -n1)"
     if [ -z "$app_source" ]; then
@@ -850,12 +974,14 @@ install_alacritty_macos() {
     fi
 
     rm -rf "/Applications/Alacritty.app"
-    spinner_run "Install Alacritty.app" ditto "$app_source" "/Applications/Alacritty.app" || {
+    if spinner_run "Install Alacritty.app" ditto "$app_source" "/Applications/Alacritty.app"; then
+        :
+    else
         hdiutil detach -quiet "$mount_point" >>"$LOG_FILE" 2>&1 || true
         rm -rf "$tmp_dir"
         print_error "Could not copy Alacritty.app"
         return 1
-    }
+    fi
 
     xattr -dr com.apple.quarantine "/Applications/Alacritty.app" >>"$LOG_FILE" 2>&1 || true
     hdiutil detach -quiet "$mount_point" >>"$LOG_FILE" 2>&1 || true
@@ -1210,6 +1336,8 @@ SYMLINKS=(
 #######################################
 
 init_logging
+prepare_interactive_screen
+progress_setup
 acquire_lock
 
 start_section "Environment"
@@ -1218,11 +1346,9 @@ print_info "Dotfiles: $DOTFILES_DIR"
 print_info "Config home: $CONFIG_HOME"
 print_info "Log file: $LOG_FILE"
 print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES"
-end_section
 
 start_section "Homebrew"
 install_homebrew_if_needed
-end_section
 
 start_section "Directory setup"
 ensure_dir "$CONFIG_HOME"
@@ -1231,22 +1357,18 @@ ensure_dir "${HOME}/.oh-my-zsh"
 ensure_dir "${HOME}/.oh-my-zsh/custom"
 ensure_dir "${HOME}/.oh-my-zsh/custom/plugins"
 ensure_dir "${HOME}/.oh-my-zsh/custom/themes"
-end_section
 
 start_section "Package upgrades"
 upgrade_packages
-end_section
 
 start_section "Package checks"
 for package_spec in "${PACKAGES[@]}"; do
     IFS='|' read -r command_name package_name <<< "$package_spec"
     ensure_command "$command_name" "$package_name"
 done
-end_section
 
 start_section "Alacritty"
 install_or_update_alacritty
-end_section
 
 start_section "Git"
 GIT_BIN="$(get_preferred_git_path)"
@@ -1260,11 +1382,9 @@ if [ "$PULL_DOTFILES" = "1" ]; then
     update_dotfiles_repo "$GIT_BIN"
 fi
 configure_git "$GIT_BIN"
-end_section
 
 start_section "Remove neofetch"
 remove_neofetch_if_installed
-end_section
 
 start_section "Cloned tools"
 if [ -z "$GIT_BIN" ]; then
@@ -1275,40 +1395,32 @@ else
         clone_repo_if_missing "$GIT_BIN" "$repo_url" "$target_dir" "$clone_args"
     done
 fi
-end_section
 
 start_section "Config symlinks"
 for link_spec in "${SYMLINKS[@]}"; do
     IFS='|' read -r source target optional <<< "$link_spec"
     link_file "$source" "$target" "$optional"
 done
-end_section
 
 start_section "Vim"
 install_vim_plug
 install_vim_plugins
-end_section
 
 start_section "Fonts"
 install_fonts
-end_section
 
 start_section "tmux"
 install_tmux_plugins
 reload_tmux_config_if_running
-end_section
 
 start_section "Scheduling"
 setup_schedule
-end_section
 
 start_section "Runtime notices"
 handle_alacritty_runtime_notice
-end_section
 
 start_section "fastfetch"
 run_fastfetch
-end_section
 
 start_section "Summary"
 print_info "Directories created  : $CREATED_DIRS"
@@ -1326,8 +1438,6 @@ print_info "Fonts skipped        : $SKIPPED_FONTS"
 print_info "Warnings             : $WARNINGS"
 print_info "Errors               : $ERRORS"
 
-end_section
-
 if [ "$GH_INSTALLED_THIS_RUN" -eq 1 ]; then
     printf '\n'
     print_info "Next steps"
@@ -1343,6 +1453,7 @@ if [ "$GH_NEEDS_AUTH_HINT" -eq 1 ]; then
 fi
 
 printf '\n'
+progress_destroy
 print_info "Log file             : $LOG_FILE"
 
 if [ "$ERRORS" -eq 0 ]; then
