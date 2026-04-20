@@ -1,3 +1,93 @@
+#######################################
+# Runtime / state (DO NOT COMMIT)
+#######################################
+
+# Logs
+.local/state/
+*.log
+
+# Cache
+.cache/
+
+# Temp files
+tmp/
+temp/
+
+#######################################
+# Shell / script artifacts
+#######################################
+
+# Backup files
+*~
+*.bak
+*.tmp
+
+# Patch files (optional — remove if you want to track them)
+*.patch
+*.diff
+
+#######################################
+# macOS
+#######################################
+
 .DS_Store
-fonts/source-code-pro-release/.DS_Store
-fonts/source-code-pro-release/.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon?
+
+# Thumbnails
+._*
+
+# Spotlight / Finder metadata
+.Spotlight-V100
+.Trashes
+
+#######################################
+# Linux
+#######################################
+
+*~
+
+#######################################
+# Editors / IDEs
+#######################################
+
+# VS Code
+.vscode/
+
+# JetBrains
+.idea/
+*.iml
+
+# Vim swap files
+*.swp
+*.swo
+
+#######################################
+# Python (only if you use helper scripts)
+#######################################
+
+__pycache__/
+*.pyc
+
+#######################################
+# Node (only if ever used)
+#######################################
+
+node_modules/
+
+#######################################
+# Local overrides / machine-specific config
+#######################################
+
+# Allow user-specific overrides without committing them
+*.local
+.env
+
+#######################################
+# Optional: ignore generated dotfile outputs
+#######################################
+# Uncomment if you ever generate files into the repo itself
+# generated/
