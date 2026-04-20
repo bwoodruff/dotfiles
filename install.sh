@@ -58,6 +58,21 @@ GH_INSTALLED_THIS_RUN=0
 GH_NEEDS_AUTH_HINT=0
 
 #######################################
+# OS detection
+#######################################
+
+PLATFORM="unknown"
+
+uname_out="$(uname -s)"
+case "${uname_out}" in
+    Linux*)   PLATFORM="linux" ;;
+    Darwin*)  PLATFORM="mac" ;;
+    CYGWIN*)  PLATFORM="cygwin" ;;
+    MINGW*|MSYS*) PLATFORM="windows" ;;
+    *)        PLATFORM="unknown" ;;
+esac
+
+#######################################
 # Sections (dynamic progress count)
 #######################################
 
@@ -126,40 +141,6 @@ while [ $# -gt 0 ]; do
 done
 
 #######################################
-# OS detection
-#######################################
-
-uname_out="$(uname -s)"
-case "${uname_out}" in
-    Linux*)   PLATFORM="linux" ;;
-    Darwin*)  PLATFORM="mac" ;;
-    CYGWIN*)  PLATFORM="cygwin" ;;
-    MINGW*|MSYS*) PLATFORM="windows" ;;
-    *)        PLATFORM="unknown" ;;
-esac
-
-#######################################
-# Logging bootstrap
-#######################################
-
-init_logging() {
-    mkdir -p "$LOG_DIR" 2>/dev/null || true
-    mkdir -p "$CACHE_HOME" 2>/dev/null || true
-    : > "$LOG_FILE" 2>/dev/null || {
-        printf 'ERROR: Could not create log file: %s\n' "$LOG_FILE" >&2
-        exit 1
-    }
-}
-
-timestamp() {
-    date '+%Y-%m-%d %H:%M:%S'
-}
-
-append_log() {
-    printf '%s\n' "$1" >>"$LOG_FILE" 2>/dev/null || true
-}
-
-#######################################
 # UI / colors
 #######################################
 
@@ -199,6 +180,59 @@ TAG_SKIP="[SKIP]"
 TAG_WARN="[WARN]"
 TAG_FAIL="[FAIL]"
 TAG_INFO="[INFO]"
+
+#######################################
+# Logging bootstrap
+#######################################
+
+init_logging() {
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
+    mkdir -p "$CACHE_HOME" 2>/dev/null || true
+    : > "$LOG_FILE" 2>/dev/null || {
+        printf 'ERROR: Could not create log file: %s\n' "$LOG_FILE" >&2
+        exit 1
+    }
+}
+
+timestamp() {
+    date '+%Y-%m-%d %H:%M:%S'
+}
+
+append_log() {
+    printf '%s\n' "$1" >>"$LOG_FILE" 2>/dev/null || true
+}
+
+#######################################
+# Terminal / display helpers
+#######################################
+
+get_term_width() {
+    local cols
+    cols="$(tput cols 2>/dev/null || echo 80)"
+    if [ -z "$cols" ] || [ "$cols" -lt 40 ]; then
+        cols=80
+    fi
+    printf '%s\n' "$cols"
+}
+
+repeat_char() {
+    local char="$1"
+    local count="$2"
+
+    if [ "$count" -le 0 ]; then
+        return 0
+    fi
+
+    printf '%*s' "$count" '' | tr ' ' "$char"
+}
+
+print_rule() {
+    local char="${1:-─}"
+    local cols
+    cols="$(get_term_width)"
+    repeat_char "$char" "$cols"
+    printf '\n'
+}
 
 #######################################
 # Pretty output helpers
@@ -247,15 +281,25 @@ print_error() {
 }
 
 #######################################
-# Progress / section display
+# Sections / progress / spinner
 #######################################
 
 render_progress_bar() {
     local current="$1"
     local total="$2"
-    local width=30
+    local cols
+    local reserved
+    local width
     local filled=0
     local empty=0
+
+    cols="$(get_term_width)"
+    reserved=10
+    width=$(( cols - reserved ))
+
+    if [ "$width" -lt 20 ]; then
+        width=20
+    fi
 
     if [ "$total" -gt 0 ]; then
         filled=$(( current * width / total ))
@@ -263,50 +307,53 @@ render_progress_bar() {
     empty=$(( width - filled ))
 
     printf '%s[' "${C_MAGENTA}"
-    printf '%*s' "$filled" '' | tr ' ' '█'
-    printf '%*s' "$empty" '' | tr ' ' '░'
+    repeat_char '█' "$filled"
+    repeat_char '░' "$empty"
     printf ']%s %d/%d\n' "${C_RESET}" "$current" "$total"
 }
 
 start_section() {
     local title="$1"
+    local cols
+    local title_text
+    local title_len
+    local side_len
+    local left
+    local right
+
     CURRENT_SECTION=$((CURRENT_SECTION + 1))
 
-    # Total width of the line (adjust if you want wider/narrower)
-    local width=60
-    local title_text="  $title  "
-    local title_len=${#title_text}
+    cols="$(get_term_width)"
+    title_text="  ${title}  "
+    title_len=${#title_text}
+    side_len=$(( (cols - title_len) / 2 ))
 
-    local side_len=$(( (width - title_len) / 2 ))
-    if [ "$side_len" -lt 0 ]; then
+    if [ "$side_len" -lt 2 ]; then
         side_len=2
     fi
 
-    local line_char="━"
-
-    local left right
-    left=$(printf '%*s' "$side_len" '' | tr ' ' "$line_char")
-    right=$(printf '%*s' "$side_len" '' | tr ' ' "$line_char")
+    left="$(repeat_char '━' "$side_len")"
+    right="$(repeat_char '━' "$side_len")"
 
     if [ "$QUIET" != "1" ]; then
-        printf '\n%s%s%s%s%s\n' \
+        printf '\n%s%s%s%s%s\n\n' \
             "${C_BOLD}${C_CYAN}" \
             "$left" \
             "$title_text" \
             "$right" \
             "${C_RESET}"
-
-        render_progress_bar "$CURRENT_SECTION" "$TOTAL_SECTIONS"
-        printf '\n'
     fi
 
     append_log ""
     append_log "━━ $title [$(timestamp)]"
 }
 
-#######################################
-# Spinner / long-running command
-#######################################
+end_section() {
+    if [ "$QUIET" != "1" ]; then
+        printf '\n'
+        render_progress_bar "$CURRENT_SECTION" "$TOTAL_SECTIONS"
+    fi
+}
 
 spinner_run() {
     local description="$1"
@@ -366,6 +413,7 @@ spinner_run() {
         return "$status"
     fi
 }
+
 #######################################
 # Cleanup / lock
 #######################################
@@ -376,7 +424,7 @@ cleanup() {
 
 acquire_lock() {
     if mkdir "$LOCK_DIR" 2>/dev/null; then
-        trap cleanup EXIT
+        trap cleanup EXIT INT TERM
     else
         print_warn "Another install run appears to be in progress: $LOCK_DIR"
         exit 1
@@ -653,13 +701,11 @@ remove_neofetch_if_installed() {
 get_preferred_git_path() {
     local github_desktop_git=""
 
-    # For CLI automation, prefer the normal git on PATH.
     if command_exists git; then
         command -v git
         return
     fi
 
-    # Fall back to GitHub Desktop's bundled git only if no normal git exists.
     if [ "$PLATFORM" = "mac" ]; then
         github_desktop_git="/Applications/GitHub Desktop.app/Contents/Resources/app/git/bin/git"
         if [ -x "$github_desktop_git" ]; then
@@ -1111,10 +1157,20 @@ run_fastfetch() {
     fi
 
     print_info "Running fastfetch"
+    if [ "$QUIET" != "1" ]; then
+        print_rule '─'
+    fi
     append_log "[RUN ] fastfetch"
+
     if fastfetch 2>>"$LOG_FILE"; then
+        if [ "$QUIET" != "1" ]; then
+            print_rule '─'
+        fi
         print_ok "fastfetch complete"
     else
+        if [ "$QUIET" != "1" ]; then
+            print_rule '─'
+        fi
         print_warn "fastfetch failed"
     fi
 }
@@ -1162,9 +1218,11 @@ print_info "Dotfiles: $DOTFILES_DIR"
 print_info "Config home: $CONFIG_HOME"
 print_info "Log file: $LOG_FILE"
 print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES"
+end_section
 
 start_section "Homebrew"
 install_homebrew_if_needed
+end_section
 
 start_section "Directory setup"
 ensure_dir "$CONFIG_HOME"
@@ -1173,23 +1231,27 @@ ensure_dir "${HOME}/.oh-my-zsh"
 ensure_dir "${HOME}/.oh-my-zsh/custom"
 ensure_dir "${HOME}/.oh-my-zsh/custom/plugins"
 ensure_dir "${HOME}/.oh-my-zsh/custom/themes"
+end_section
 
 start_section "Package upgrades"
 upgrade_packages
+end_section
 
 start_section "Package checks"
 for package_spec in "${PACKAGES[@]}"; do
     IFS='|' read -r command_name package_name <<< "$package_spec"
     ensure_command "$command_name" "$package_name"
 done
+end_section
 
 start_section "Alacritty"
 install_or_update_alacritty
+end_section
 
 start_section "Git"
 GIT_BIN="$(get_preferred_git_path)"
 if [ -n "$GIT_BIN" ]; then
-    print_ok "Using git binary: $GIT_BIN"
+    print_ok "Using CLI git binary: $GIT_BIN"
 else
     print_warn "No git executable found"
 fi
@@ -1198,9 +1260,11 @@ if [ "$PULL_DOTFILES" = "1" ]; then
     update_dotfiles_repo "$GIT_BIN"
 fi
 configure_git "$GIT_BIN"
+end_section
 
 start_section "Remove neofetch"
 remove_neofetch_if_installed
+end_section
 
 start_section "Cloned tools"
 if [ -z "$GIT_BIN" ]; then
@@ -1211,32 +1275,40 @@ else
         clone_repo_if_missing "$GIT_BIN" "$repo_url" "$target_dir" "$clone_args"
     done
 fi
+end_section
 
 start_section "Config symlinks"
 for link_spec in "${SYMLINKS[@]}"; do
     IFS='|' read -r source target optional <<< "$link_spec"
     link_file "$source" "$target" "$optional"
 done
+end_section
 
 start_section "Vim"
 install_vim_plug
 install_vim_plugins
+end_section
 
 start_section "Fonts"
 install_fonts
+end_section
 
 start_section "tmux"
 install_tmux_plugins
 reload_tmux_config_if_running
+end_section
 
 start_section "Scheduling"
 setup_schedule
+end_section
 
 start_section "Runtime notices"
 handle_alacritty_runtime_notice
+end_section
 
 start_section "fastfetch"
 run_fastfetch
+end_section
 
 start_section "Summary"
 print_info "Directories created  : $CREATED_DIRS"
@@ -1253,6 +1325,8 @@ print_info "Fonts installed      : $INSTALLED_FONTS"
 print_info "Fonts skipped        : $SKIPPED_FONTS"
 print_info "Warnings             : $WARNINGS"
 print_info "Errors               : $ERRORS"
+
+end_section
 
 if [ "$GH_INSTALLED_THIS_RUN" -eq 1 ]; then
     printf '\n'
