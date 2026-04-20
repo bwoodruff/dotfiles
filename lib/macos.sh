@@ -4,6 +4,26 @@
 # macOS defaults helpers
 #######################################
 
+macos_defaults_read() {
+    local domain="$1"
+    local key="$2"
+    defaults read "$domain" "$key" 2>/dev/null || true
+}
+
+macos_bool_is_true() {
+    case "$1" in
+        1|true|TRUE|yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+macos_bool_is_false() {
+    case "$1" in
+        0|false|FALSE|no) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 macos_defaults_write_bool() {
     local domain="$1"
     local key="$2"
@@ -11,27 +31,22 @@ macos_defaults_write_bool() {
     local description="$4"
     local verify_domain="${5:-$domain}"
     local verify_key="${6:-$key}"
+    local actual=""
 
     if spinner_run "$description" defaults write "$domain" "$key" -bool "$value"; then
-        local actual=""
-        actual="$(defaults read "$verify_domain" "$verify_key" 2>/dev/null || true)"
+        actual="$(macos_defaults_read "$verify_domain" "$verify_key")"
 
-        case "$actual" in
-            1|true|TRUE|yes)
-                if [ "$value" = "true" ]; then
-                    print_ok "$description"
-                    mark_validated_ok
-                    return 0
-                fi
-                ;;
-            0|false|FALSE|no)
-                if [ "$value" = "false" ]; then
-                    print_ok "$description"
-                    mark_validated_ok
-                    return 0
-                fi
-                ;;
-        esac
+        if [ "$value" = "true" ]; then
+            if macos_bool_is_true "$actual"; then
+                mark_validated_ok
+                return 0
+            fi
+        else
+            if macos_bool_is_false "$actual"; then
+                mark_validated_ok
+                return 0
+            fi
+        fi
 
         print_error "$description did not verify"
         mark_validated_fail
@@ -50,13 +65,12 @@ macos_defaults_write_string() {
     local description="$4"
     local verify_domain="${5:-$domain}"
     local verify_key="${6:-$key}"
+    local actual=""
 
     if spinner_run "$description" defaults write "$domain" "$key" -string "$value"; then
-        local actual=""
-        actual="$(defaults read "$verify_domain" "$verify_key" 2>/dev/null || true)"
+        actual="$(macos_defaults_read "$verify_domain" "$verify_key")"
 
         if [ "$actual" = "$value" ]; then
-            print_ok "$description"
             mark_validated_ok
             return 0
         fi
@@ -78,13 +92,12 @@ macos_defaults_write_int() {
     local description="$4"
     local verify_domain="${5:-$domain}"
     local verify_key="${6:-$key}"
+    local actual=""
 
     if spinner_run "$description" defaults write "$domain" "$key" -int "$value"; then
-        local actual=""
-        actual="$(defaults read "$verify_domain" "$verify_key" 2>/dev/null || true)"
+        actual="$(macos_defaults_read "$verify_domain" "$verify_key")"
 
         if [ "$actual" = "$value" ]; then
-            print_ok "$description"
             mark_validated_ok
             return 0
         fi
@@ -111,7 +124,6 @@ restart_finder_if_needed() {
     fi
 
     if spinner_run "Restart Finder" killall Finder; then
-        print_ok "Finder restarted"
         mark_validated_ok
     else
         print_warn "Could not restart Finder automatically"
@@ -125,7 +137,7 @@ restart_finder_if_needed() {
 
 current_macos_appearance_is_dark() {
     local result=""
-    result="$(defaults read -g AppleInterfaceStyle 2>/dev/null || true)"
+    result="$(macos_defaults_read -g AppleInterfaceStyle)"
     [ "$result" = "Dark" ]
 }
 
@@ -138,7 +150,6 @@ set_macos_appearance_dark() {
 
     if spinner_run "Set macOS appearance to Dark" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true'; then
         if current_macos_appearance_is_dark; then
-            print_ok "macOS appearance set to Dark"
             mark_validated_ok
         else
             print_error "macOS appearance change did not verify"
@@ -152,7 +163,7 @@ set_macos_appearance_dark() {
 
 current_macos_accent_is_purple() {
     local actual=""
-    actual="$(defaults read -g AppleAccentColor 2>/dev/null || true)"
+    actual="$(macos_defaults_read -g AppleAccentColor)"
     [ "$actual" = "5" ]
 }
 
@@ -165,9 +176,8 @@ set_macos_accent_purple() {
 
     if spinner_run "Set macOS accent color to Purple" defaults write -g AppleAccentColor -int 5; then
         local actual=""
-        actual="$(defaults read -g AppleAccentColor 2>/dev/null || true)"
+        actual="$(macos_defaults_read -g AppleAccentColor)"
         if [ "$actual" = "5" ]; then
-            print_ok "macOS accent color set to Purple"
             mark_validated_ok
         else
             print_error "Accent color change did not verify"
@@ -181,11 +191,8 @@ set_macos_accent_purple() {
 
 current_scroll_direction_is_natural() {
     local actual=""
-    actual="$(defaults read -g com.apple.swipescrolldirection 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
+    actual="$(macos_defaults_read -g com.apple.swipescrolldirection)"
+    macos_bool_is_true "$actual"
 }
 
 set_scroll_direction_natural() {
@@ -198,123 +205,143 @@ set_scroll_direction_natural() {
     macos_defaults_write_bool -g com.apple.swipescrolldirection true "Enable natural scroll direction"
 }
 
-#######################################
-# Finder preferences
-#######################################
-
-finder_show_path_bar_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder ShowPathbar 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_show_status_bar_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder ShowStatusBar 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_show_tab_bar_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder ShowTabView 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_default_view_is_list() {
-    local actual=""
-    actual="$(defaults read com.apple.finder FXPreferredViewStyle 2>/dev/null || true)"
-    [ "$actual" = "Nlsv" ]
-}
-
-finder_show_extensions_enabled() {
-    local actual=""
-    actual="$(defaults read -g AppleShowAllExtensions 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_new_windows_show_home() {
-    local target=""
-    local path=""
-    target="$(defaults read com.apple.finder NewWindowTarget 2>/dev/null || true)"
-    path="$(defaults read com.apple.finder NewWindowTargetPath 2>/dev/null || true)"
-    [ "$target" = "PfHm" ] && [ "$path" = "file://${HOME}" ]
-}
-
-finder_tabs_instead_of_windows_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder FinderSpawnTab 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_keep_folders_on_top_windows_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder _FXSortFoldersFirst 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_keep_folders_on_top_desktop_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder _FXSortFoldersFirstOnDesktop 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-finder_search_current_folder_enabled() {
-    local actual=""
-    actual="$(defaults read com.apple.finder FXDefaultSearchScope 2>/dev/null || true)"
-    [ "$actual" = "SCcf" ]
-}
-
-finder_sidebar_item_enabled() {
-    local domain="$1"
-    local key="$2"
-    local actual=""
-    actual="$(defaults read "$domain" "$key" 2>/dev/null || true)"
-    case "$actual" in
-        1|true|TRUE|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-configure_finder_preferences() {
+configure_global_macos_preferences() {
     if ! is_macos; then
-        print_skip "Finder preferences not relevant on non-macOS"
+        print_skip "macOS preferences not relevant on non-macOS"
         mark_validated_ok
         return 0
     fi
 
     if ! is_interactive; then
-        print_skip "Skipping Finder preferences in non-interactive mode"
+        print_skip "Skipping macOS preferences in non-interactive mode"
         mark_validated_ok
         return 0
     fi
 
-    if ! prompt_yes_no_default_yes "Configure Finder preferences?"; then
-        print_skip "Finder preferences unchanged"
+    if current_macos_appearance_is_dark; then
+        print_skip "macOS appearance already Dark"
         mark_validated_ok
-        return 0
+    else
+        if prompt_yes_no_default_yes "Set macOS appearance to Dark?"; then
+            set_macos_appearance_dark
+        else
+            print_skip "macOS appearance unchanged"
+            mark_validated_ok
+        fi
     fi
 
+    if current_macos_accent_is_purple; then
+        print_skip "macOS accent color already Purple"
+        mark_validated_ok
+    else
+        if prompt_yes_no_default_yes "Set macOS accent color to Purple?"; then
+            set_macos_accent_purple
+        else
+            print_skip "macOS accent color unchanged"
+            mark_validated_ok
+        fi
+    fi
+
+    if current_scroll_direction_is_natural; then
+        print_skip "Natural scroll direction already enabled"
+        mark_validated_ok
+    else
+        if prompt_yes_no_default_yes "Enable natural scroll direction?"; then
+            set_scroll_direction_natural
+        else
+            print_skip "Scroll direction unchanged"
+            mark_validated_ok
+        fi
+    fi
+}
+
+#######################################
+# Finder preferences
+#######################################
+
+finder_default_view_is_list() {
+    [ "$(macos_defaults_read com.apple.finder FXPreferredViewStyle)" = "Nlsv" ]
+}
+
+finder_show_path_bar_enabled() {
+    macos_bool_is_true "$(macos_defaults_read com.apple.finder ShowPathbar)"
+}
+
+finder_show_status_bar_enabled() {
+    macos_bool_is_true "$(macos_defaults_read com.apple.finder ShowStatusBar)"
+}
+
+finder_show_tab_bar_enabled() {
+    macos_bool_is_true "$(macos_defaults_read com.apple.finder ShowTabView)"
+}
+
+finder_show_extensions_enabled() {
+    macos_bool_is_true "$(macos_defaults_read -g AppleShowAllExtensions)"
+}
+
+finder_new_windows_show_home() {
+    local target=""
+    local path=""
+    target="$(macos_defaults_read com.apple.finder NewWindowTarget)"
+    path="$(macos_defaults_read com.apple.finder NewWindowTargetPath)"
+    [ "$target" = "PfHm" ] && [ "$path" = "file://${HOME}" ]
+}
+
+finder_tabs_instead_of_windows_enabled() {
+    macos_bool_is_true "$(macos_defaults_read com.apple.finder FinderSpawnTab)"
+}
+
+finder_keep_folders_on_top_windows_enabled() {
+    macos_bool_is_true "$(macos_defaults_read com.apple.finder _FXSortFoldersFirst)"
+}
+
+finder_keep_folders_on_top_desktop_enabled() {
+    macos_bool_is_true "$(macos_defaults_read com.apple.finder _FXSortFoldersFirstOnDesktop)"
+}
+
+finder_search_current_folder_enabled() {
+    [ "$(macos_defaults_read com.apple.finder FXDefaultSearchScope)" = "SCcf" ]
+}
+
+finder_hide_hard_disks_on_desktop_correct() {
+    macos_bool_is_false "$(macos_defaults_read com.apple.finder ShowHardDrivesOnDesktop)"
+}
+
+finder_hide_external_disks_on_desktop_correct() {
+    macos_bool_is_false "$(macos_defaults_read com.apple.finder ShowExternalHardDrivesOnDesktop)"
+}
+
+finder_hide_servers_on_desktop_correct() {
+    macos_bool_is_false "$(macos_defaults_read com.apple.finder ShowMountedServersOnDesktop)"
+}
+
+finder_hide_removable_media_on_desktop_correct() {
+    macos_bool_is_false "$(macos_defaults_read com.apple.finder ShowRemovableMediaOnDesktop)"
+}
+
+finder_disable_icloud_sidebar_shortcut_correct() {
+    macos_bool_is_false "$(macos_defaults_read com.apple.finder SidebarShowingiCloudDesktop)"
+}
+
+finder_preferences_need_changes() {
+    ! finder_default_view_is_list \
+    || ! finder_show_path_bar_enabled \
+    || ! finder_show_status_bar_enabled \
+    || ! finder_show_tab_bar_enabled \
+    || ! finder_show_extensions_enabled \
+    || ! finder_new_windows_show_home \
+    || ! finder_tabs_instead_of_windows_enabled \
+    || ! finder_keep_folders_on_top_windows_enabled \
+    || ! finder_keep_folders_on_top_desktop_enabled \
+    || ! finder_search_current_folder_enabled \
+    || ! finder_hide_hard_disks_on_desktop_correct \
+    || ! finder_hide_external_disks_on_desktop_correct \
+    || ! finder_hide_servers_on_desktop_correct \
+    || ! finder_hide_removable_media_on_desktop_correct \
+    || ! finder_disable_icloud_sidebar_shortcut_correct
+}
+
+apply_finder_preferences() {
     print_info "Applying Finder preferences"
 
     if finder_default_view_is_list; then
@@ -398,74 +425,73 @@ configure_finder_preferences() {
         FINDER_PREFS_CHANGED=1
     fi
 
-    # Sidebar items based on your screenshots/preferences.
-    # These are user-facing Finder preference toggles exposed via defaults.
+    if finder_hide_hard_disks_on_desktop_correct; then
+        print_skip "Hard disks already hidden on Desktop"
+        mark_validated_ok
+    else
+        macos_defaults_write_bool com.apple.finder ShowHardDrivesOnDesktop false "Hide hard disks on Desktop"
+        FINDER_PREFS_CHANGED=1
+    fi
 
-    # General desktop items
-    macos_defaults_write_bool com.apple.finder ShowHardDrivesOnDesktop false "Hide hard disks on Desktop"
-    macos_defaults_write_bool com.apple.finder ShowExternalHardDrivesOnDesktop false "Hide external disks on Desktop"
-    macos_defaults_write_bool com.apple.finder ShowMountedServersOnDesktop false "Hide connected servers on Desktop"
-    macos_defaults_write_bool com.apple.finder ShowRemovableMediaOnDesktop false "Hide CDs/DVDs/iOS devices on Desktop"
-    FINDER_PREFS_CHANGED=1
+    if finder_hide_external_disks_on_desktop_correct; then
+        print_skip "External disks already hidden on Desktop"
+        mark_validated_ok
+    else
+        macos_defaults_write_bool com.apple.finder ShowExternalHardDrivesOnDesktop false "Hide external disks on Desktop"
+        FINDER_PREFS_CHANGED=1
+    fi
 
-    # Sidebar favorites / locations / tags
-    macos_defaults_write_bool com.apple.finder SidebarShowingiCloudDesktop false "Disable iCloud Desktop/Documents sync shortcut in Finder sidebar"
-    FINDER_PREFS_CHANGED=1
+    if finder_hide_servers_on_desktop_correct; then
+        print_skip "Connected servers already hidden on Desktop"
+        mark_validated_ok
+    else
+        macos_defaults_write_bool com.apple.finder ShowMountedServersOnDesktop false "Hide connected servers on Desktop"
+        FINDER_PREFS_CHANGED=1
+    fi
+
+    if finder_hide_removable_media_on_desktop_correct; then
+        print_skip "CDs/DVDs/iOS devices already hidden on Desktop"
+        mark_validated_ok
+    else
+        macos_defaults_write_bool com.apple.finder ShowRemovableMediaOnDesktop false "Hide CDs/DVDs/iOS devices on Desktop"
+        FINDER_PREFS_CHANGED=1
+    fi
+
+    if finder_disable_icloud_sidebar_shortcut_correct; then
+        print_skip "iCloud Desktop/Documents sync shortcut already disabled in Finder sidebar"
+        mark_validated_ok
+    else
+        macos_defaults_write_bool com.apple.finder SidebarShowingiCloudDesktop false "Disable iCloud Desktop/Documents sync shortcut in Finder sidebar"
+        FINDER_PREFS_CHANGED=1
+    fi
 
     restart_finder_if_needed
 }
 
-#######################################
-# Other macOS preferences
-#######################################
-
-configure_global_macos_preferences() {
+configure_finder_preferences() {
     if ! is_macos; then
-        print_skip "macOS preferences not relevant on non-macOS"
+        print_skip "Finder preferences not relevant on non-macOS"
         mark_validated_ok
         return 0
     fi
 
     if ! is_interactive; then
-        print_skip "Skipping macOS preferences in non-interactive mode"
+        print_skip "Skipping Finder preferences in non-interactive mode"
         mark_validated_ok
         return 0
     fi
 
-    if current_macos_appearance_is_dark; then
-        print_skip "macOS appearance already Dark"
+    if ! finder_preferences_need_changes; then
+        print_skip "Finder preferences already configured"
         mark_validated_ok
-    else
-        if prompt_yes_no_default_yes "Set macOS appearance to Dark?"; then
-            set_macos_appearance_dark
-        else
-            print_skip "macOS appearance unchanged"
-            mark_validated_ok
-        fi
+        return 0
     fi
 
-    if current_macos_accent_is_purple; then
-        print_skip "macOS accent color already Purple"
-        mark_validated_ok
+    if prompt_yes_no_default_yes "Configure Finder preferences?"; then
+        apply_finder_preferences
     else
-        if prompt_yes_no_default_yes "Set macOS accent color to Purple?"; then
-            set_macos_accent_purple
-        else
-            print_skip "macOS accent color unchanged"
-            mark_validated_ok
-        fi
-    fi
-
-    if current_scroll_direction_is_natural; then
-        print_skip "Natural scroll direction already enabled"
+        print_skip "Finder preferences unchanged"
         mark_validated_ok
-    else
-        if prompt_yes_no_default_yes "Enable natural scroll direction?"; then
-            set_scroll_direction_natural
-        else
-            print_skip "Scroll direction unchanged"
-            mark_validated_ok
-        fi
     fi
 }
 
@@ -591,9 +617,13 @@ setup_schedule() {
     fi
 
     case "$PLATFORM" in
-        mac) setup_schedule_macos ;;
-        linux) setup_schedule_linux ;;
-        *) 
+        mac)
+            setup_schedule_macos
+            ;;
+        linux)
+            setup_schedule_linux
+            ;;
+        *)
             print_skip "Schedule setup not implemented for platform: $PLATFORM"
             mark_validated_ok
             ;;
