@@ -169,6 +169,9 @@ main() {
         update_dotfiles_repo "$GIT_BIN"
     fi
     configure_git "$GIT_BIN"
+    
+    start_section "GitHub Desktop"
+	install_github_desktop
 
     start_section "Remove neofetch"
     remove_neofetch_if_installed

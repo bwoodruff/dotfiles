@@ -1,6 +1,116 @@
 #!/usr/bin/env bash
 
 #######################################
+# GitHub Desktop
+#######################################
+
+GITHUB_DESKTOP_APP="/Applications/GitHub Desktop.app"
+
+github_desktop_installed() {
+    [ -d "$GITHUB_DESKTOP_APP" ]
+}
+
+github_desktop_version() {
+    local plist="${GITHUB_DESKTOP_APP}/Contents/Info.plist"
+
+    if [ -f "$plist" ]; then
+        /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null \
+        || defaults read "${GITHUB_DESKTOP_APP}/Contents/Info" CFBundleShortVersionString 2>/dev/null \
+        || true
+    fi
+}
+
+github_desktop_download_url() {
+    case "$(uname -m)" in
+        arm64)
+            echo "https://central.github.com/deployments/desktop/desktop/latest/darwin-arm64"
+            ;;
+        x86_64)
+            echo "https://central.github.com/deployments/desktop/desktop/latest/darwin"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+install_github_desktop() {
+    if ! is_macos; then
+        print_skip "GitHub Desktop not supported on this platform"
+        mark_validated_ok
+        return 0
+    fi
+
+    if github_desktop_installed; then
+        print_skip "GitHub Desktop already installed ($(github_desktop_version))"
+        mark_validated_ok
+        return 0
+    fi
+
+    local url
+    url="$(github_desktop_download_url)" || {
+        print_error "Unsupported architecture for GitHub Desktop"
+        mark_validated_fail
+        return 1
+    }
+
+    local tmp_dir zip_path app_path
+    tmp_dir="$(mktemp -d)"
+    zip_path="${tmp_dir}/github-desktop.zip"
+
+    # Download
+    if ! spinner_run "Download GitHub Desktop" curl -L -o "$zip_path" "$url"; then
+        print_error "Failed to download GitHub Desktop"
+        rm -rf "$tmp_dir"
+        mark_validated_fail
+        return 1
+    fi
+
+    # Unzip
+    if ! spinner_run "Extract GitHub Desktop" unzip -q "$zip_path" -d "$tmp_dir"; then
+        print_error "Failed to extract GitHub Desktop"
+        rm -rf "$tmp_dir"
+        mark_validated_fail
+        return 1
+    fi
+
+    # Locate .app
+    app_path="$(find "$tmp_dir" -maxdepth 2 -type d -name "GitHub Desktop.app" -print -quit)"
+
+    if [ -z "$app_path" ]; then
+        print_error "GitHub Desktop.app not found after extraction"
+        rm -rf "$tmp_dir"
+        mark_validated_fail
+        return 1
+    fi
+
+    # Move to /Applications
+    if spinner_run "Install GitHub Desktop" mv "$app_path" "/Applications/"; then
+        :
+    else
+        print_error "Failed to move GitHub Desktop to /Applications"
+        rm -rf "$tmp_dir"
+        mark_validated_fail
+        return 1
+    fi
+
+    # Remove quarantine (important)
+    xattr -dr com.apple.quarantine "$GITHUB_DESKTOP_APP" 2>/dev/null || true
+
+    # Cleanup
+    rm -rf "$tmp_dir"
+
+    # Verify
+    if github_desktop_installed; then
+        print_ok "GitHub Desktop installed ($(github_desktop_version))"
+        mark_validated_ok
+    else
+        print_error "GitHub Desktop install did not verify"
+        mark_validated_fail
+    fi
+}
+
+#######################################
 # Alacritty
 #######################################
 
