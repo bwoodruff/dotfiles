@@ -1,8 +1,6 @@
-# 
 #   Dotfiles Bootstrap
-# 
 
-_Disclaimer: This repo is public primarily for my benefit. It makes it easier to utilize the project as intended... If I had to sign into GitHub before I could access the project I'd have to install and set up 1Password, install `gh` and run `gh auth login`, ... etc. I just want to be able to clone this repo, run the script, and have the essentials largely in place.__
+_Disclaimer: This repo is public primarily for my benefit. It makes it easier to utilize the project as intended... If I had to sign into GitHub before I could access the project I'd have to install and set up 1Password, install `gh` and run `gh auth login`, ... etc. I just want to be able to clone this repo, run the script, and have the essentials largely in place._
 
 A cross-platform bootstrap script for configuring a fresh system with:
 
