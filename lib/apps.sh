@@ -474,6 +474,9 @@ onepassword_cli_version() {
 }
 
 install_1password_cli_macos() {
+    local op_bin=""
+    local quarantine_attr="com.apple.quarantine"
+
     if onepassword_cli_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password CLI already installed ($(onepassword_cli_version || true))"
@@ -489,6 +492,15 @@ install_1password_cli_macos() {
 
     if spinner_run "Install 1Password CLI via Homebrew" brew install --cask 1password-cli; then
         if verify_command_present "op"; then
+            op_bin="$(command -v op)"
+            xattr -d "$quarantine_attr" "$op_bin" >/dev/null 2>&1 || true
+
+            if verify_xattr_absent "$op_bin" "$quarantine_attr"; then
+                :
+            else
+                print_warn "1Password CLI installed but quarantine attribute may still be present"
+            fi
+
             INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
             ONEPASSWORD_CLI_INSTALLED_THIS_RUN=1
             print_ok "Installed 1Password CLI ($(onepassword_cli_version || true))"
@@ -582,18 +594,6 @@ EOF
 # 1Password preferences / browser guidance
 #######################################
 
-configure_1password_preferences_notice() {
-    if ! is_interactive; then
-        return 0
-    fi
-
-    if is_macos && onepassword_mac_installed; then
-        print_info "1Password app settings such as SSH agent and CLI integration are not being modified automatically yet"
-    elif is_linux && onepassword_linux_installed; then
-        print_info "1Password app settings such as SSH agent and CLI integration are not being modified automatically yet"
-    fi
-}
-
 check_1password_safari_status() {
     if ! is_macos; then
         return 0
@@ -615,12 +615,10 @@ install_1password_stack() {
             install_1password_mac_app
             check_1password_safari_status
             install_1password_cli_macos
-            configure_1password_preferences_notice
             ;;
         linux)
             install_1password_linux_app
             install_1password_cli_linux
-            configure_1password_preferences_notice
             ;;
         *)
             print_skip "1Password automation not implemented for platform: $PLATFORM"
@@ -671,40 +669,54 @@ run_fastfetch() {
 # Next-step summary helpers
 #######################################
 
+has_next_steps() {
+    [ "$GH_INSTALLED_THIS_RUN" -eq 1 ] \
+    || [ "$GH_NEEDS_AUTH_HINT" -eq 1 ] \
+    || [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] \
+    || [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
+    || [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
+    || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]
+}
+
 print_post_install_next_steps() {
-    if [ "$GH_INSTALLED_THIS_RUN" -eq 1 ]; then
+    has_next_steps || return 0
+
+    start_section "Next steps"
+
+    if [ "$GH_INSTALLED_THIS_RUN" -eq 1 ] || [ "$GH_NEEDS_AUTH_HINT" -eq 1 ]; then
+        print_info "GitHub CLI"
+        if [ "$GH_INSTALLED_THIS_RUN" -eq 1 ]; then
+            print_info "Run: gh auth login"
+            print_info "Then: gh auth setup-git"
+        fi
+        if [ "$GH_NEEDS_AUTH_HINT" -eq 1 ]; then
+            print_info "Dotfiles pull failed, likely due to GitHub authentication"
+            print_info "Run: gh auth setup-git"
+            print_info "Then retry: ./install.sh --pull-dotfiles"
+        fi
         printf '\n'
-        print_info "Next steps"
-        print_info "Run: gh auth login"
-        print_info "Then: gh auth setup-git"
     fi
 
-    if [ "$GH_NEEDS_AUTH_HINT" -eq 1 ]; then
-        printf '\n'
-        print_warn "Dotfiles pull failed, likely due to GitHub authentication."
-        print_info "Run: gh auth setup-git"
-        print_info "Then retry: ./install.sh --pull-dotfiles"
-    fi
+	if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
+		|| [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
+		|| [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
+		print_info "1Password"
+		if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ]; then
+			print_info "Open and sign in to the 1Password desktop app"
+		fi
+		if [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ]; then
+			print_info "Install 1Password for Safari from the Mac App Store"
+			print_info "Then enable it in Safari Settings > Extensions"
+		fi
+		if [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
+			print_info "Run: op signin"
+		fi
+		printf '\n'
+	fi
 
     if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ]; then
+        print_info "GPG"
+        print_info "Import or create keys, then set trust as needed"
         printf '\n'
-        print_info "Next step: configure GPG (import or create keys, then set trust as needed)"
-    fi
-
-    if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ]; then
-        printf '\n'
-        print_info "Next step: open 1Password and sign in to your account"
-    fi
-
-    if [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ]; then
-        printf '\n'
-        print_info "Next step: install 1Password for Safari from the Mac App Store and enable it in Safari Settings > Extensions"
-    fi
-
-    if [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
-        printf '\n'
-        print_info "Next steps for 1Password CLI"
-        print_info "Run: op signin"
-        print_info "Then enable CLI integration inside the 1Password app if desired"
     fi
 }

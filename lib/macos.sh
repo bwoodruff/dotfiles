@@ -432,25 +432,40 @@ configure_global_macos_preferences() {
         return 0
     fi
 
-    if prompt_yes_no_default_yes "Set macOS appearance to Dark?"; then
-        set_macos_appearance_dark
-    else
-        print_skip "macOS appearance unchanged"
+    if current_macos_appearance_is_dark; then
+        print_skip "macOS appearance already Dark"
         mark_validated_ok
+    else
+        if prompt_yes_no_default_yes "Set macOS appearance to Dark?"; then
+            set_macos_appearance_dark
+        else
+            print_skip "macOS appearance unchanged"
+            mark_validated_ok
+        fi
     fi
 
-    if prompt_yes_no_default_yes "Set macOS accent color to Purple?"; then
-        set_macos_accent_purple
-    else
-        print_skip "macOS accent color unchanged"
+    if current_macos_accent_is_purple; then
+        print_skip "macOS accent color already Purple"
         mark_validated_ok
+    else
+        if prompt_yes_no_default_yes "Set macOS accent color to Purple?"; then
+            set_macos_accent_purple
+        else
+            print_skip "macOS accent color unchanged"
+            mark_validated_ok
+        fi
     fi
 
-    if prompt_yes_no_default_yes "Enable natural scroll direction?"; then
-        set_scroll_direction_natural
-    else
-        print_skip "Scroll direction unchanged"
+    if current_scroll_direction_is_natural; then
+        print_skip "Natural scroll direction already enabled"
         mark_validated_ok
+    else
+        if prompt_yes_no_default_yes "Enable natural scroll direction?"; then
+            set_scroll_direction_natural
+        else
+            print_skip "Scroll direction unchanged"
+            mark_validated_ok
+        fi
     fi
 }
 
