@@ -46,7 +46,7 @@ cd ~/dotfiles
 - Installs apps like:
   - Alacritty (GitHub release)
   - GitHub CLI (`gh`)
-  - 1Password (desktop + CLI guidance)
+  - 1Password (desktop + CLI setup)
   - GPG
 - Sets up:
   - `.zshrc`, `.vimrc`, tmux config, etc.
@@ -58,6 +58,7 @@ cd ~/dotfiles
   - Finder configuration
 - Installs fonts
 - Runs validation after every step
+- Automatically clears macOS quarantine attributes for downloaded binaries to prevent first-launch Gatekeeper prompts
 
 ---
 
@@ -79,7 +80,7 @@ Nothing is duplicated or broken on re-run.
 
 ### Trust but Verify
 
-Every action is validated:
+Every action is validated (“trust but verify”):
 
 - install → check binary exists
 - symlink → verify correct target
@@ -116,6 +117,18 @@ Features:
 
 ---
 
+### Next Steps
+
+The script may output a **Next steps** section at the end of the run.
+
+- Only shown when manual follow-up is required
+- Organized by tool (e.g. GitHub CLI, 1Password, GPG)
+- Each subsection appears only when relevant
+
+This keeps output clean while still guiding required manual steps.
+
+---
+
 ## ━━ Flags
 
 ```bash
@@ -145,6 +158,8 @@ Features:
     └── macos.sh      # macOS preferences
 ```
 
+Each module is intentionally scoped to keep the system maintainable and avoid large monolithic scripts.
+
 ---
 
 ## ━━ Applications
@@ -171,9 +186,10 @@ Install flow:
 3. CLI (`op`) via Homebrew
 
 Notes:
-- Desktop app uses built-in auto-updater
-- Script does not override existing installs
-- Safari extension install/enabling is nudged, not automated
+- Desktop app uses its built-in auto-updater
+- Script does **not** modify 1Password application settings
+- Some settings (e.g. SSH agent, CLI integration) are integrity-protected and must be configured inside the app
+- Safari extension installation/enabling is nudged, not automated
 
 ### GPG
 
@@ -234,7 +250,7 @@ Monday @ 00:00
 - **Readable output > clever output**
 - **No hidden magic**
 - **Respect existing system state**
-- **Prefer official install methods where practical**
+- **Prefer official distribution methods when they provide better update or security guarantees (e.g. 1Password, Alacritty)**
 
 ---
 
