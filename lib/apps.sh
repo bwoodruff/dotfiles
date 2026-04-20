@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 
 #######################################
+# gpg
+#######################################
+
+gpg_has_secret_keys() {
+    if ! command_exists gpg; then
+        return 1
+    fi
+
+    gpg --list-secret-keys --with-colons 2>/dev/null | grep -q '^sec:'
+}
+
+#######################################
 # GitHub Desktop
 #######################################
 
@@ -802,6 +814,7 @@ has_next_steps() {
     [ "$GH_INSTALLED_THIS_RUN" -eq 1 ] \
     || [ "$GH_NEEDS_AUTH_HINT" -eq 1 ] \
     || [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] \
+    || { command_exists gpg && ! gpg_has_secret_keys; } \
     || [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
     || [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
     || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ] \
@@ -845,11 +858,23 @@ print_post_install_next_steps() {
         printf '\n'
     fi
 
-    if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ]; then
-        print_info "GPG"
-        print_info "Import or create keys, then set trust as needed"
-        printf '\n'
-    fi
+	if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] || { command_exists gpg && ! gpg_has_secret_keys; }; then
+		print_info "GPG"
+	
+		if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ]; then
+			print_info "GPG was installed during this run"
+		fi
+	
+		if command_exists gpg && ! gpg_has_secret_keys; then
+			print_info "No GPG secret keys were found"
+			print_info "Retrieve your GPG key material from 1Password and import it"
+			print_info "Then set trust as needed"
+		else
+			print_info "Import or create keys, then set trust as needed"
+		fi
+	
+		printf '\n'
+	fi
 
     if [ "$ALACRITTY_UPDATED" -eq 1 ]; then
         print_info "Alacritty"
