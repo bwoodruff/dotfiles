@@ -57,25 +57,34 @@ update_dotfiles_repo() {
 
 configure_git() {
     local git_bin="$1"
+    local current_editor=""
 
-    if [ -n "$git_bin" ] && command_exists vim; then
-        if spinner_run "Set git editor to vim" "$git_bin" config --global core.editor "vim"; then
-            local current_editor
-            current_editor="$("$git_bin" config --global core.editor 2>/dev/null || true)"
-            if [ "$current_editor" = "vim" ]; then
-                print_ok "Git editor set to vim"
-                mark_validated_ok
-            else
-                print_error "Git editor change did not verify"
-                mark_validated_fail
-            fi
+    if [ -z "$git_bin" ] || ! command_exists vim; then
+        print_skip "Skipping git editor config"
+        mark_validated_ok
+        return 0
+    fi
+
+    current_editor="$("$git_bin" config --global core.editor 2>/dev/null || true)"
+
+    if [ "$current_editor" = "vim" ]; then
+        print_skip "Git editor already set to vim"
+        mark_validated_ok
+        return 0
+    fi
+
+    if spinner_run "Set git editor to vim" "$git_bin" config --global core.editor "vim"; then
+        current_editor="$("$git_bin" config --global core.editor 2>/dev/null || true)"
+        if [ "$current_editor" = "vim" ]; then
+            print_ok "Git editor set to vim"
+            mark_validated_ok
         else
-            print_warn "Could not set git editor"
+            print_error "Git editor change did not verify"
             mark_validated_fail
         fi
     else
-        print_skip "Skipping git editor config"
-        mark_validated_ok
+        print_error "Could not set git editor"
+        mark_validated_fail
     fi
 }
 
@@ -173,8 +182,10 @@ link_file() {
             if [ "$target" = "${CONFIG_HOME}/tmux/tmux.conf" ]; then
                 TMUX_CONFIG_CHANGED=1
             fi
+            mark_validated_ok
         else
             print_error "Symlink did not verify: $target"
+            mark_validated_fail
         fi
     else
         print_error "Could not link $target -> $source"
@@ -201,8 +212,10 @@ install_vim_plug() {
         https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim; then
         if verify_path_exists "$plug_path"; then
             print_ok "vim-plug installed"
+            mark_validated_ok
         else
             print_error "vim-plug install reported success but file missing"
+            mark_validated_fail
         fi
     else
         print_warn "Could not install vim-plug"
@@ -231,6 +244,12 @@ install_vim_plugins() {
         return 0
     fi
 
+    if [ -d "${HOME}/.vim/plugged" ]; then
+        print_skip "Vim plugins already installed"
+        mark_validated_ok
+        return 0
+    fi
+
     ensure_dir "${HOME}/.vim"
     append_log "Vim plugin log: $vim_log"
 
@@ -242,10 +261,10 @@ install_vim_plugins() {
 
     if vim -N -V1"${vim_log}" -E -s -u "${HOME}/.vimrc" "+PlugInstall --sync" "+qa!" >>"$LOG_FILE" 2>&1; then
         if [ -d "${HOME}/.vim/plugged" ]; then
-            print_ok "Vim plugins installed/updated"
+            print_ok "Vim plugins installed"
             mark_validated_ok
         else
-            print_warn "Vim exited successfully but ~/.vim/plugged was not found"
+            print_error "Vim exited successfully but ~/.vim/plugged was not found"
             mark_validated_fail
         fi
     else
@@ -295,8 +314,10 @@ install_fonts() {
                 if verify_path_exists "${fonts_dest_dir}/${filename}"; then
                     INSTALLED_FONTS=$((INSTALLED_FONTS + 1))
                     print_ok "Installed font: ${filename}"
+                    mark_validated_ok
                 else
                     print_error "Font install reported success but file missing: ${filename}"
+                    mark_validated_fail
                 fi
             else
                 print_error "Could not install font: ${filename}"
@@ -326,17 +347,26 @@ install_fonts() {
 #######################################
 
 install_tmux_plugins() {
-    if [ -x "${HOME}/.tmux/plugins/tpm/bin/install_plugins" ]; then
-        if spinner_run "Install tmux plugins" "${HOME}/.tmux/plugins/tpm/bin/install_plugins"; then
-            print_ok "tmux plugins installed"
-            mark_validated_ok
-        else
-            print_warn "tmux plugin install failed"
-            mark_validated_fail
-        fi
-    else
+    local installer="${HOME}/.tmux/plugins/tpm/bin/install_plugins"
+
+    if [ ! -x "$installer" ]; then
         print_skip "TPM installer not found"
         mark_validated_ok
+        return 0
+    fi
+
+    if [ "${TMUX_CONFIG_CHANGED:-0}" != "1" ]; then
+        print_skip "tmux plugins unchanged; install not needed"
+        mark_validated_ok
+        return 0
+    fi
+
+    if spinner_run "Install tmux plugins" "$installer"; then
+        print_ok "tmux plugins installed"
+        mark_validated_ok
+    else
+        print_warn "tmux plugin install failed"
+        mark_validated_fail
     fi
 }
 
@@ -345,6 +375,12 @@ reload_tmux_config_if_running() {
 
     if [ "$SCHEDULED" = "1" ]; then
         print_skip "Scheduled mode: skipping tmux reload"
+        mark_validated_ok
+        return 0
+    fi
+
+    if [ "${TMUX_CONFIG_CHANGED:-0}" != "1" ]; then
+        print_skip "tmux config unchanged; reload not needed"
         mark_validated_ok
         return 0
     fi
@@ -373,40 +409,6 @@ reload_tmux_config_if_running() {
     else
         print_warn "Could not reload tmux config"
         mark_validated_fail
-    fi
-}
-
-#######################################
-# zsh / OMZ / Powerlevel10k
-#######################################
-
-handle_zsh_runtime_notice() {
-    if [ "$SCHEDULED" = "1" ]; then
-        return 0
-    fi
-
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        print_info "zsh-related changes will apply fully in a new shell session"
-    fi
-}
-
-#######################################
-# Runtime notices
-#######################################
-
-handle_alacritty_runtime_notice() {
-    if [ "$ALACRITTY_UPDATED" != "1" ]; then
-        return 0
-    fi
-
-    if [ "$SCHEDULED" = "1" ]; then
-        print_skip "Scheduled mode: skipping Alacritty restart notice"
-        mark_validated_ok
-        return 0
-    fi
-
-    if pgrep -x "Alacritty" >/dev/null 2>&1; then
-        print_info "Alacritty was updated. Quit and reopen it to use the new version."
     fi
 }
 

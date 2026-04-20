@@ -116,7 +116,6 @@ SECTIONS=(
     "GPG"
     "macOS preferences"
     "Scheduling"
-    "Runtime notices"
     "fastfetch"
     "Summary"
 )

@@ -189,7 +189,6 @@ main() {
     start_section "tmux"
     install_tmux_plugins
     reload_tmux_config_if_running
-    handle_zsh_runtime_notice
 
     start_section "1Password"
     install_1password_stack
@@ -214,9 +213,6 @@ main() {
 
     start_section "Scheduling"
     setup_schedule
-
-    start_section "Runtime notices"
-    handle_alacritty_runtime_notice
 
     start_section "fastfetch"
     run_fastfetch

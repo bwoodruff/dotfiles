@@ -95,15 +95,19 @@ install_homebrew_if_needed() {
         brew_share="$(brew --prefix)/share"
 
         if [ -d "$brew_share" ]; then
-            if spinner_run "Fix Homebrew permissions" chmod go-w "$brew_share"; then
-                if verify_permission_not_group_other_writable "$brew_share"; then
-                    print_ok "Homebrew permissions verified: $brew_share"
-                else
-                    print_error "Homebrew permissions still not correct: $brew_share"
-                fi
+            if verify_permission_not_group_other_writable "$brew_share"; then
+                print_skip "Homebrew permissions already correct: $brew_share"
             else
-                print_error "Failed to adjust Homebrew permissions"
-                mark_validated_fail
+                if spinner_run "Fix Homebrew permissions" chmod go-w "$brew_share"; then
+                    if verify_permission_not_group_other_writable "$brew_share"; then
+                        print_ok "Homebrew permissions verified: $brew_share"
+                    else
+                        print_error "Homebrew permissions still not correct: $brew_share"
+                    fi
+                else
+                    print_error "Failed to adjust Homebrew permissions"
+                    mark_validated_fail
+                fi
             fi
         fi
     fi
@@ -119,13 +123,12 @@ upgrade_packages() {
     case "$PLATFORM" in
         mac)
             if homebrew_available; then
-                if spinner_run "brew update" brew update; then
-                    print_ok "brew update complete"
-                    mark_validated_ok
-                else
-                    print_warn "brew update failed"
-                    mark_validated_fail
-                fi
+				if spinner_run "brew update" brew update; then
+					mark_validated_ok
+				else
+					print_warn "brew update failed"
+					mark_validated_fail
+				fi
 
                 local outdated_count=0
                 outdated_count="$(brew outdated --quiet 2>/dev/null | wc -l | tr -d ' ')"

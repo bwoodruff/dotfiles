@@ -213,9 +213,12 @@ onepassword_safari_app_present() {
 }
 
 onepassword_mac_version() {
-    local app_bin="${ONEPASSWORD_MAC_APP}/Contents/MacOS/1Password"
-    if [ -x "$app_bin" ]; then
-        "$app_bin" --version 2>/dev/null | awk '{print $2}'
+    local plist="${ONEPASSWORD_MAC_APP}/Contents/Info.plist"
+
+    if [ -f "$plist" ]; then
+        /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null \
+        || defaults read "${ONEPASSWORD_MAC_APP}/Contents/Info" CFBundleShortVersionString 2>/dev/null \
+        || true
     fi
 }
 
@@ -645,21 +648,37 @@ run_fastfetch() {
     fi
 
     print_info "Running fastfetch"
+
     if [ "$QUIET" != "1" ]; then
         print_rule '─'
     fi
-    append_log "[RUN ] fastfetch"
 
-    if fastfetch 2>>"$LOG_FILE"; then
-        if [ "$QUIET" != "1" ]; then
-            print_rule '─'
+    append_log "[INFO] Running fastfetch"
+
+    if [ "$QUIET" = "1" ]; then
+        if fastfetch >>"$LOG_FILE" 2>&1; then
+            print_ok "fastfetch complete"
+            mark_validated_ok
+        else
+            print_warn "fastfetch failed"
+            mark_validated_fail
         fi
+        return 0
+    fi
+
+    local ff_tmp
+    ff_tmp="$(mktemp)"
+
+    if fastfetch --pipe false 2>&1 | tee "$ff_tmp"; then
+        cat "$ff_tmp" >>"$LOG_FILE"
+        rm -f "$ff_tmp"
+        print_rule '─'
         print_ok "fastfetch complete"
         mark_validated_ok
     else
-        if [ "$QUIET" != "1" ]; then
-            print_rule '─'
-        fi
+        cat "$ff_tmp" >>"$LOG_FILE"
+        rm -f "$ff_tmp"
+        print_rule '─'
         print_warn "fastfetch failed"
         mark_validated_fail
     fi
@@ -675,7 +694,9 @@ has_next_steps() {
     || [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] \
     || [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
     || [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
-    || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]
+    || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ] \
+    || [ "$ALACRITTY_UPDATED" -eq 1 ] \
+    || [ -n "${ZSH_VERSION:-}" ]
 }
 
 print_post_install_next_steps() {
@@ -697,26 +718,38 @@ print_post_install_next_steps() {
         printf '\n'
     fi
 
-	if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
-		|| [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
-		|| [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
-		print_info "1Password"
-		if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ]; then
-			print_info "Open and sign in to the 1Password desktop app"
-		fi
-		if [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ]; then
-			print_info "Install 1Password for Safari from the Mac App Store"
-			print_info "Then enable it in Safari Settings > Extensions"
-		fi
-		if [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
-			print_info "Run: op signin"
-		fi
-		printf '\n'
-	fi
+    if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
+        || [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
+        || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
+        print_info "1Password"
+        if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ]; then
+            print_info "Open and sign in to the 1Password desktop app"
+        fi
+        if [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ]; then
+            print_info "Install 1Password for Safari from the Mac App Store"
+            print_info "Then enable it in Safari Settings > Extensions"
+        fi
+        if [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
+            print_info "Run: op signin"
+        fi
+        printf '\n'
+    fi
 
     if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ]; then
         print_info "GPG"
         print_info "Import or create keys, then set trust as needed"
+        printf '\n'
+    fi
+
+    if [ "$ALACRITTY_UPDATED" -eq 1 ]; then
+        print_info "Alacritty"
+        print_info "Quit and reopen Alacritty to use the updated version"
+        printf '\n'
+    fi
+
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        print_info "Shell"
+        print_info "Start a new shell session to fully apply zsh-related changes"
         printf '\n'
     fi
 }
