@@ -42,3 +42,6 @@ lines = 48
 [window.padding]
 x = 5
 y = 5
+
+[window]
+opacity = 0.9
