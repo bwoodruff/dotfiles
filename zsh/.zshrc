@@ -152,6 +152,10 @@ test -r "~/.dir_colors" && eval $(dircolors ~/.dir_colors)
 
 bindkey -v
 
+## Make it so paths dragged into the terminal get quoted/escaped
+autoload -U url-quote-magic
+zle -N self-insert url-quote-magic
+
 ## THIS SHOULDN'T HAVE TO BE HERE. See https://github.com/zsh-users/zsh-completions/issues/684
 compinit
 
