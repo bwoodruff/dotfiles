@@ -74,8 +74,14 @@ install_homebrew_if_needed() {
     if homebrew_available; then
         print_skip "Homebrew already installed ($(command -v brew))"
         mark_validated_ok
-    else
-        if spinner_run "Install Homebrew" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+        else
+        if ! ensure_sudo_cached; then
+            print_error "Unable to authenticate for Homebrew installation"
+            mark_validated_fail
+            return 1
+        fi
+
+        if spinner_run "Install Homebrew" env NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
             if homebrew_available; then
                 INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
                 print_ok "Homebrew installed ($(command -v brew))"
