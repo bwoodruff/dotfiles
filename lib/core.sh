@@ -708,3 +708,18 @@ prompt_yes_no_default_yes() {
         *) return 1 ;;
     esac
 }
+
+
+ensure_sudo_cached() {
+    if [ "$DRY_RUN" = "1" ]; then
+        return 0
+    fi
+
+    if [ ! -t 1 ]; then
+        print_error "sudo required, but no interactive terminal is available"
+        return 1
+    fi
+
+    printf '\n'
+    sudo -v
+}

@@ -4,6 +4,10 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+#######################################
+# Import libraries
+#######################################
+
 # shellcheck source=lib/core.sh
 source "${SCRIPT_DIR}/lib/core.sh"
 # shellcheck source=lib/packages.sh
@@ -14,6 +18,8 @@ source "${SCRIPT_DIR}/lib/config.sh"
 source "${SCRIPT_DIR}/lib/apps.sh"
 # shellcheck source=lib/macos.sh
 source "${SCRIPT_DIR}/lib/macos.sh"
+# shellcheck source=lib/scheduling.sh
+source "${SCRIPT_DIR}/lib/scheduling.sh"
 
 #######################################
 # Argument parsing
@@ -110,6 +116,14 @@ print_summary() {
     print_info "Errors               : $ERRORS"
 }
 
+prepare_interactive_screen() {
+    if [ "$QUIET" = "1" ] || [ "$SCHEDULED" = "1" ] || [ ! -t 1 ]; then
+        return 0
+    fi
+
+    clear
+}
+
 #######################################
 # Main
 #######################################
@@ -119,6 +133,7 @@ main() {
     init_colors
     init_sections
     init_logging
+    prepare_interactive_screen
     progress_setup
     acquire_lock
 
