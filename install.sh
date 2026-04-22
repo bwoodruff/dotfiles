@@ -66,56 +66,6 @@ done
 # Helpers
 #######################################
 
-run_package_checks() {
-    local package_spec command_name package_name
-    for package_spec in "${PACKAGES[@]}"; do
-        IFS='|' read -r command_name package_name <<< "$package_spec"
-        ensure_command "$command_name" "$package_name"
-    done
-}
-
-run_repo_clones() {
-    local repo_spec repo_url target_dir clone_args
-
-    if [ -z "$GIT_BIN" ]; then
-        print_warn "No git binary available; skipping repo clone checks"
-        mark_validated_fail
-        return 0
-    fi
-
-    for repo_spec in "${GIT_REPOS[@]}"; do
-        IFS='|' read -r repo_url target_dir clone_args <<< "$repo_spec"
-        clone_repo_if_missing "$GIT_BIN" "$repo_url" "$target_dir" "$clone_args"
-    done
-}
-
-run_symlink_setup() {
-    local link_spec source target optional
-    for link_spec in "${SYMLINKS[@]}"; do
-        IFS='|' read -r source target optional <<< "$link_spec"
-        link_file "$source" "$target" "$optional"
-    done
-}
-
-print_summary() {
-    print_info "Directories created  : $CREATED_DIRS"
-    print_info "Backups made         : $BACKED_UP_PATHS"
-    print_info "Symlinks created     : $LINKED_FILES"
-    print_info "Symlinks skipped     : $SKIPPED_LINKS"
-    print_info "Packages installed   : $INSTALLED_PACKAGES"
-    print_info "Packages upgraded    : $UPGRADED_PACKAGES"
-    print_info "Packages removed     : $REMOVED_PACKAGES"
-    print_info "Packages skipped     : $SKIPPED_PACKAGES"
-    print_info "Repos cloned         : $CLONED_REPOS"
-    print_info "Repos skipped        : $SKIPPED_REPOS"
-    print_info "Fonts installed      : $INSTALLED_FONTS"
-    print_info "Fonts skipped        : $SKIPPED_FONTS"
-    print_info "Validated OK         : $VALIDATED_OK"
-    print_info "Validation failures  : $VALIDATED_FAIL"
-    print_info "Warnings             : $WARNINGS"
-    print_info "Errors               : $ERRORS"
-}
-
 prepare_interactive_screen() {
     if [ "$QUIET" = "1" ] || [ "$SCHEDULED" = "1" ] || [ ! -t 1 ]; then
         return 0
@@ -125,47 +75,50 @@ prepare_interactive_screen() {
 }
 
 #######################################
-# Main
+# Task wrappers
 #######################################
 
-main() {
-    detect_platform
-    init_colors
-    init_sections
-    init_logging
-    prepare_interactive_screen
-    progress_setup
-    acquire_lock
-
-    start_section "Environment"
+task_environment() {
     print_info "Platform: $PLATFORM"
     print_info "Dotfiles: $DOTFILES_DIR"
     print_info "Config home: $CONFIG_HOME"
     print_info "Log file: $LOG_FILE"
     print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES"
+}
 
-    start_section "Homebrew"
+task_homebrew() {
     install_homebrew_if_needed
+}
 
-    start_section "Directory setup"
+task_directory_setup() {
     ensure_dir "$CONFIG_HOME"
     ensure_dir "${HOME}/.tmux/plugins"
     ensure_dir "${HOME}/.oh-my-zsh"
     ensure_dir "${HOME}/.oh-my-zsh/custom"
     ensure_dir "${HOME}/.oh-my-zsh/custom/plugins"
     ensure_dir "${HOME}/.oh-my-zsh/custom/themes"
+}
 
-    start_section "Package upgrades"
+task_package_upgrades() {
     upgrade_packages
+}
 
-    start_section "Package checks"
-    run_package_checks
+task_package_checks() {
+    local package_spec command_name package_name
 
-    start_section "Alacritty"
+    for package_spec in "${PACKAGES[@]}"; do
+        IFS='|' read -r command_name package_name <<< "$package_spec"
+        ensure_command "$command_name" "$package_name"
+    done
+}
+
+task_alacritty() {
     install_or_update_alacritty
+}
 
-    start_section "Git"
+task_git() {
     GIT_BIN="$(get_preferred_git_path)"
+
     if [ -n "$GIT_BIN" ]; then
         local git_ver=""
         git_ver="$(git_version "$GIT_BIN" || true)"
@@ -183,35 +136,61 @@ main() {
     if [ "$PULL_DOTFILES" = "1" ]; then
         update_dotfiles_repo "$GIT_BIN"
     fi
+
     configure_git "$GIT_BIN"
-    
-    start_section "GitHub Desktop"
-	install_github_desktop
+}
 
-    start_section "Remove neofetch"
+task_github_desktop() {
+    install_github_desktop
+}
+
+task_remove_neofetch() {
     remove_neofetch_if_installed
+}
 
-    start_section "Cloned tools"
-    run_repo_clones
+task_cloned_tools() {
+    local repo_spec repo_url target_dir clone_args
 
-    start_section "Config symlinks"
-    run_symlink_setup
+    if [ -z "${GIT_BIN:-}" ]; then
+        print_warn "No git binary available; skipping repo clone checks"
+        mark_validated_fail
+        return 0
+    fi
 
-    start_section "Vim"
+    for repo_spec in "${GIT_REPOS[@]}"; do
+        IFS='|' read -r repo_url target_dir clone_args <<< "$repo_spec"
+        clone_repo_if_missing "$GIT_BIN" "$repo_url" "$target_dir" "$clone_args"
+    done
+}
+
+task_config_symlinks() {
+    local link_spec source target optional
+
+    for link_spec in "${SYMLINKS[@]}"; do
+        IFS='|' read -r source target optional <<< "$link_spec"
+        link_file "$source" "$target" "$optional"
+    done
+}
+
+task_vim() {
     install_vim_plug
     install_vim_plugins
+}
 
-    start_section "Fonts"
+task_fonts() {
     install_fonts
+}
 
-    start_section "tmux"
+task_tmux() {
     install_tmux_plugins
     reload_tmux_config_if_running
+}
 
-    start_section "1Password"
+task_1password() {
     install_1password_stack
+}
 
-    start_section "GPG"
+task_gpg() {
     if command_exists gpg; then
         local gpg_ver=""
         gpg_ver="$(command_version gpg || true)"
@@ -224,20 +203,82 @@ main() {
     else
         ensure_command "gpg" "gnupg"
     fi
+}
 
-    start_section "macOS preferences"
+task_macos_preferences() {
     configure_global_macos_preferences
     configure_finder_preferences
+}
 
-    start_section "Scheduling"
+task_scheduling() {
     setup_schedule
+}
 
-    start_section "fastfetch"
+task_fastfetch() {
     run_fastfetch
+}
 
-    start_section "Summary"
-    print_summary
+task_summary() {
+    print_info "Directories created  : $CREATED_DIRS"
+    print_info "Backups made         : $BACKED_UP_PATHS"
+    print_info "Symlinks created     : $LINKED_FILES"
+    print_info "Symlinks skipped     : $SKIPPED_LINKS"
+    print_info "Packages installed   : $INSTALLED_PACKAGES"
+    print_info "Packages upgraded    : $UPGRADED_PACKAGES"
+    print_info "Packages removed     : $REMOVED_PACKAGES"
+    print_info "Packages skipped     : $SKIPPED_PACKAGES"
+    print_info "Repos cloned         : $CLONED_REPOS"
+    print_info "Repos skipped        : $SKIPPED_REPOS"
+    print_info "Fonts installed      : $INSTALLED_FONTS"
+    print_info "Fonts skipped        : $SKIPPED_FONTS"
+    print_info "Validated OK         : $VALIDATED_OK"
+    print_info "Validation failures  : $VALIDATED_FAIL"
+    print_info "Warnings             : $WARNINGS"
+    print_info "Errors               : $ERRORS"
     print_post_install_next_steps
+}
+
+#######################################
+# Task registry
+#######################################
+
+TASKS=(
+    "Environment|task_environment|all|0"
+    "Homebrew|task_homebrew|mac|0"
+    "Directory setup|task_directory_setup|all|0"
+    "Package upgrades|task_package_upgrades|all|0"
+    "Package checks|task_package_checks|all|0"
+    "Alacritty|task_alacritty|mac|0"
+    "Git|task_git|all|0"
+    "GitHub Desktop|task_github_desktop|mac|0"
+    "Remove neofetch|task_remove_neofetch|all|0"
+    "Cloned tools|task_cloned_tools|all|0"
+    "Config symlinks|task_config_symlinks|all|0"
+    "Vim|task_vim|all|0"
+    "Fonts|task_fonts|all|0"
+    "tmux|task_tmux|all|0"
+    "1Password|task_1password|all|0"
+    "GPG|task_gpg|all|0"
+    "macOS preferences|task_macos_preferences|mac|1"
+    "Scheduling|task_scheduling|all|0"
+    "fastfetch|task_fastfetch|all|0"
+    "Summary|task_summary|all|0"
+)
+
+#######################################
+# Main
+#######################################
+
+main() {
+    detect_platform
+    init_colors
+    init_sections
+    init_logging
+    prepare_interactive_screen
+    progress_setup
+    acquire_lock
+
+    run_tasks "${TASKS[@]}"
 
     printf '\n'
     progress_destroy

@@ -723,3 +723,50 @@ ensure_sudo_cached() {
     printf '\n'
     sudo -v
 }
+
+#######################################
+# Task runner
+#######################################
+
+task_should_run() {
+    local platform_scope="$1"
+    local interactive_required="$2"
+
+    case "$platform_scope" in
+        all) ;;
+        mac) [ "$PLATFORM" = "mac" ] || return 1 ;;
+        linux) [ "$PLATFORM" = "linux" ] || return 1 ;;
+        *) return 1 ;;
+    esac
+
+    if [ "$interactive_required" = "1" ] && ! is_interactive; then
+        return 1
+    fi
+
+    return 0
+}
+
+run_tasks() {
+    local task_record=""
+    local section_name=""
+    local function_name=""
+    local platform_scope=""
+    local interactive_required=""
+
+    for task_record in "$@"; do
+        IFS='|' read -r section_name function_name platform_scope interactive_required <<< "$task_record"
+
+        if ! task_should_run "$platform_scope" "$interactive_required"; then
+            continue
+        fi
+
+        start_section "$section_name"
+
+        if declare -F "$function_name" >/dev/null 2>&1; then
+            "$function_name"
+        else
+            print_error "Task function not found: $function_name"
+            mark_validated_fail
+        fi
+    done
+}
