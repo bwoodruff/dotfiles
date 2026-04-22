@@ -64,6 +64,79 @@ print_command_status_with_version() {
 # Homebrew setup / upgrades
 #######################################
 
+homebrew_bin_path() {
+    if [ -x /opt/homebrew/bin/brew ]; then
+        printf '/opt/homebrew/bin/brew\n'
+    elif [ -x /usr/local/bin/brew ]; then
+        printf '/usr/local/bin/brew\n'
+    else
+        printf '\n'
+    fi
+}
+
+homebrew_shellenv_rcfile() {
+    case "${SHELL:-}" in
+        */zsh) printf '%s/.zprofile\n' "$HOME" ;;
+        */bash) printf '%s/.bash_profile\n' "$HOME" ;;
+        *) printf '%s/.profile\n' "$HOME" ;;
+    esac
+}
+
+ensure_homebrew_shellenv_configured() {
+    local brew_bin=""
+    local rcfile=""
+    local shellenv_line=""
+
+    brew_bin="$(homebrew_bin_path)"
+    if [ -z "$brew_bin" ]; then
+        print_error "Homebrew appears installed but brew binary was not found in a standard location"
+        mark_validated_fail
+        return 1
+    fi
+
+    # Make brew available immediately in this running script.
+    eval "$("$brew_bin" shellenv)"
+
+    if command_exists brew; then
+        mark_validated_ok
+    else
+        print_error "Failed to activate Homebrew in current shell"
+        mark_validated_fail
+        return 1
+    fi
+
+    rcfile="$(homebrew_shellenv_rcfile)"
+    shellenv_line="eval \"\$($brew_bin shellenv)\""
+
+    ensure_dir "$(dirname "$rcfile")" || return 1
+
+    if [ -f "$rcfile" ] && grep -Fqx "$shellenv_line" "$rcfile"; then
+        print_skip "Homebrew shellenv already configured in $rcfile"
+        mark_validated_ok
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        print_info "[dry-run] Would append Homebrew shellenv to $rcfile"
+        mark_validated_ok
+        return 0
+    fi
+
+    {
+        [ -f "$rcfile" ] || : > "$rcfile"
+        printf '\n%s\n' "$shellenv_line"
+    } >>"$rcfile"
+
+    if grep -Fqx "$shellenv_line" "$rcfile"; then
+        print_ok "Configured Homebrew shellenv in $rcfile"
+        mark_validated_ok
+    else
+        print_error "Failed to persist Homebrew shellenv in $rcfile"
+        mark_validated_fail
+        return 1
+    fi
+}
+
 install_homebrew_if_needed() {
     if ! is_macos; then
         print_skip "Not macOS; skipping Homebrew setup"
@@ -82,12 +155,12 @@ install_homebrew_if_needed() {
         fi
 
         if spinner_run "Install Homebrew" env NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
-            if homebrew_available; then
+            if ensure_homebrew_shellenv_configured && homebrew_available; then
                 INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
                 print_ok "Homebrew installed ($(command -v brew))"
                 mark_validated_ok
             else
-                print_error "Homebrew installer returned success but brew is still missing"
+                print_error "Homebrew installer returned success but brew is still unavailable"
                 mark_validated_fail
             fi
         else
