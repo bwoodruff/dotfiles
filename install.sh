@@ -93,10 +93,6 @@ task_homebrew() {
 task_directory_setup() {
     ensure_dir "$CONFIG_HOME"
     ensure_dir "${HOME}/.tmux/plugins"
-    ensure_dir "${HOME}/.oh-my-zsh"
-    ensure_dir "${HOME}/.oh-my-zsh/custom"
-    ensure_dir "${HOME}/.oh-my-zsh/custom/plugins"
-    ensure_dir "${HOME}/.oh-my-zsh/custom/themes"
 }
 
 task_package_upgrades() {
