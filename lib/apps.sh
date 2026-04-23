@@ -667,7 +667,7 @@ check_1password_safari_status() {
         print_skip "1Password for Safari app is present"
         mark_validated_ok
     else
-        print_warn "1Password for Safari app not detected"
+        print_info "1Password for Safari app not detected"
         ONEPASSWORD_SAFARI_NEXT_STEP=1
         mark_validated_fail
     fi
