@@ -628,6 +628,36 @@ verify_permission_not_group_other_writable() {
 # Generic utility helpers
 #######################################
 
+clear_quarantine_if_present() {
+    local path="$1"
+    local quarantine_attr="${2:-com.apple.quarantine}"
+
+    if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+        print_error "Cannot clear quarantine; path not found: $path"
+        mark_validated_fail
+        return 1
+    fi
+
+    if verify_xattr_absent "$path" "$quarantine_attr"; then
+        return 0
+    fi
+
+    if spinner_run "Clear quarantine: $path" xattr -dr "$quarantine_attr" "$path"; then
+        if verify_xattr_absent "$path" "$quarantine_attr"; then
+            print_ok "Cleared quarantine: $path"
+            return 0
+        fi
+
+        print_error "Quarantine attribute still present after clear attempt: $path"
+        mark_validated_fail
+        return 1
+    fi
+
+    print_error "Failed to clear quarantine: $path"
+    mark_validated_fail
+    return 1
+}
+
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }

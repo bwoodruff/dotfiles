@@ -59,18 +59,20 @@ install_github_desktop() {
         return 0
     fi
 
-    local url
+    local url=""
+    local tmp_dir=""
+    local zip_path=""
+    local app_path=""
+
     url="$(github_desktop_download_url)" || {
         print_error "Unsupported architecture for GitHub Desktop"
         mark_validated_fail
         return 1
     }
 
-    local tmp_dir zip_path app_path
     tmp_dir="$(mktemp -d)"
     zip_path="${tmp_dir}/github-desktop.zip"
 
-    # Download
     if ! spinner_run "Download GitHub Desktop" curl -L -o "$zip_path" "$url"; then
         print_error "Failed to download GitHub Desktop"
         rm -rf "$tmp_dir"
@@ -78,7 +80,6 @@ install_github_desktop() {
         return 1
     fi
 
-    # Unzip
     if ! spinner_run "Extract GitHub Desktop" unzip -q "$zip_path" -d "$tmp_dir"; then
         print_error "Failed to extract GitHub Desktop"
         rm -rf "$tmp_dir"
@@ -86,9 +87,7 @@ install_github_desktop() {
         return 1
     fi
 
-    # Locate .app
     app_path="$(find "$tmp_dir" -maxdepth 2 -type d -name "GitHub Desktop.app" -print -quit)"
-
     if [ -z "$app_path" ]; then
         print_error "GitHub Desktop.app not found after extraction"
         rm -rf "$tmp_dir"
@@ -96,23 +95,20 @@ install_github_desktop() {
         return 1
     fi
 
-    # Move to /Applications
-    if spinner_run "Install GitHub Desktop" mv "$app_path" "/Applications/"; then
-        :
-    else
+    if ! spinner_run "Install GitHub Desktop" mv "$app_path" "/Applications/"; then
         print_error "Failed to move GitHub Desktop to /Applications"
         rm -rf "$tmp_dir"
         mark_validated_fail
         return 1
     fi
 
-    # Remove quarantine (important)
-    xattr -dr com.apple.quarantine "$GITHUB_DESKTOP_APP" 2>/dev/null || true
+    if ! clear_quarantine_if_present "$GITHUB_DESKTOP_APP"; then
+        rm -rf "$tmp_dir"
+        return 1
+    fi
 
-    # Cleanup
     rm -rf "$tmp_dir"
 
-    # Verify
     if github_desktop_installed; then
         print_ok "GitHub Desktop installed ($(github_desktop_version))"
         mark_validated_ok
@@ -149,7 +145,7 @@ install_alacritty_macos() {
     local latest_tag=""
     local latest_version=""
     local installed_version=""
-    local quarantine_attr="com.apple.quarantine"
+    local final_version=""
 
     installed_version="$(get_installed_alacritty_version_macos || true)"
     if [ -n "$installed_version" ]; then
@@ -199,9 +195,7 @@ install_alacritty_macos() {
         return 1
     fi
 
-    if spinner_run "Mount Alacritty DMG" hdiutil attach -nobrowse -quiet -mountpoint "$mount_point" "$dmg_path"; then
-        :
-    else
+    if ! spinner_run "Mount Alacritty DMG" hdiutil attach -nobrowse -quiet -mountpoint "$mount_point" "$dmg_path"; then
         rm -rf "$tmp_dir"
         print_error "Could not mount Alacritty DMG"
         mark_validated_fail
@@ -218,9 +212,7 @@ install_alacritty_macos() {
     fi
 
     rm -rf "/Applications/Alacritty.app"
-    if spinner_run "Install Alacritty.app" ditto "$app_source" "/Applications/Alacritty.app"; then
-        :
-    else
+    if ! spinner_run "Install Alacritty.app" ditto "$app_source" "/Applications/Alacritty.app"; then
         hdiutil detach -quiet "$mount_point" >>"$LOG_FILE" 2>&1 || true
         rm -rf "$tmp_dir"
         print_error "Could not copy Alacritty.app"
@@ -228,18 +220,15 @@ install_alacritty_macos() {
         return 1
     fi
 
-    xattr -dr "$quarantine_attr" "/Applications/Alacritty.app" >>"$LOG_FILE" 2>&1 || true
     hdiutil detach -quiet "$mount_point" >>"$LOG_FILE" 2>&1 || true
     rm -rf "$tmp_dir"
 
-    local final_version=""
+    if ! clear_quarantine_if_present "/Applications/Alacritty.app"; then
+        return 1
+    fi
+
     final_version="$(get_installed_alacritty_version_macos || true)"
     if [ -n "$final_version" ]; then
-        if verify_xattr_absent "/Applications/Alacritty.app" "$quarantine_attr"; then
-            :
-        else
-            print_warn "Alacritty installed but quarantine attribute may still be present"
-        fi
         INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
         ALACRITTY_UPDATED=1
         print_ok "Installed Alacritty (${final_version})"
@@ -324,7 +313,6 @@ install_or_update_alacritty() {
 
 ONEPASSWORD_MAC_APP="/Applications/1Password.app"
 ONEPASSWORD_SAFARI_APP="/Applications/1Password for Safari.app"
-ONEPASSWORD_MAC_DOWNLOAD_URL="https://downloads.1password.com/mac/1Password.zip"
 
 onepassword_mac_installed() {
     [ -d "$ONEPASSWORD_MAC_APP" ]
@@ -345,11 +333,7 @@ onepassword_mac_version() {
 }
 
 install_1password_mac_app() {
-    local tmp_dir=""
-    local zip_path=""
-    local extracted_app=""
     local final_version=""
-    local quarantine_attr="com.apple.quarantine"
 
     if onepassword_mac_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
@@ -358,67 +342,26 @@ install_1password_mac_app() {
         return 0
     fi
 
-    if [ "$DRY_RUN" = "1" ]; then
-        print_info "[dry-run] Would download and install 1Password for Mac"
-        mark_validated_ok
-        return 0
+    if ! homebrew_available; then
+        print_warn "Homebrew unavailable; cannot install 1Password for Mac"
+        mark_validated_fail
+        return 1
     fi
 
-    tmp_dir="$(mktemp -d)"
-    zip_path="${tmp_dir}/1Password.zip"
-
-    if spinner_run "Download 1Password for Mac" curl -fL "$ONEPASSWORD_MAC_DOWNLOAD_URL" -o "$zip_path"; then
-        if ! verify_path_exists "$zip_path"; then
-            rm -rf "$tmp_dir"
-            print_error "Downloaded 1Password archive not found"
+    if spinner_run "Install 1Password for Mac via Homebrew cask" brew install --cask 1password; then
+        if ! verify_path_exists "$ONEPASSWORD_MAC_APP"; then
+            print_error "1Password cask install reported success but app not found: $ONEPASSWORD_MAC_APP"
             return 1
         fi
-    else
-        rm -rf "$tmp_dir"
-        print_error "Could not download 1Password for Mac"
-        mark_validated_fail
-        return 1
-    fi
 
-    if spinner_run "Extract 1Password for Mac" ditto -x -k "$zip_path" "$tmp_dir"; then
-        :
-    else
-        rm -rf "$tmp_dir"
-        print_error "Could not extract 1Password for Mac"
-        mark_validated_fail
-        return 1
-    fi
-
-    extracted_app="$(find "$tmp_dir" -maxdepth 3 -name '1Password.app' -type d | head -n1)"
-    if [ -z "$extracted_app" ]; then
-        rm -rf "$tmp_dir"
-        print_error "Could not find 1Password.app after extraction"
-        mark_validated_fail
-        return 1
-    fi
-
-    rm -rf "$ONEPASSWORD_MAC_APP"
-    if spinner_run "Install 1Password for Mac" ditto "$extracted_app" "$ONEPASSWORD_MAC_APP"; then
-        :
-    else
-        rm -rf "$tmp_dir"
-        print_error "Could not install 1Password for Mac"
-        mark_validated_fail
-        return 1
-    fi
-
-    xattr -dr "$quarantine_attr" "$ONEPASSWORD_MAC_APP" >>"$LOG_FILE" 2>&1 || true
-    rm -rf "$tmp_dir"
-
-    if onepassword_mac_installed; then
-        final_version="$(onepassword_mac_version || true)"
-        if verify_xattr_absent "$ONEPASSWORD_MAC_APP" "$quarantine_attr"; then
-            :
-        else
-            print_warn "1Password installed but quarantine attribute may still be present"
+        if ! clear_quarantine_if_present "$ONEPASSWORD_MAC_APP"; then
+            return 1
         fi
+
+        final_version="$(onepassword_mac_version || true)"
         INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
         ONEPASSWORD_INSTALLED_THIS_RUN=1
+
         if [ -n "$final_version" ]; then
             print_ok "Installed 1Password for Mac (${final_version})"
         else
@@ -427,7 +370,7 @@ install_1password_mac_app() {
         return 0
     fi
 
-    print_error "1Password install reported success but app is still missing"
+    print_error "Could not install 1Password for Mac"
     mark_validated_fail
     return 1
 }
@@ -600,7 +543,6 @@ onepassword_cli_version() {
 
 install_1password_cli_macos() {
     local op_bin=""
-    local quarantine_attr="com.apple.quarantine"
 
     if onepassword_cli_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
@@ -618,12 +560,9 @@ install_1password_cli_macos() {
     if spinner_run "Install 1Password CLI via Homebrew" brew install --cask 1password-cli; then
         if verify_command_present "op"; then
             op_bin="$(command -v op)"
-            xattr -d "$quarantine_attr" "$op_bin" >/dev/null 2>&1 || true
 
-            if verify_xattr_absent "$op_bin" "$quarantine_attr"; then
-                :
-            else
-                print_warn "1Password CLI installed but quarantine attribute may still be present"
+            if ! clear_quarantine_if_present "$op_bin"; then
+                return 1
             fi
 
             INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
@@ -788,7 +727,7 @@ run_fastfetch() {
         return 0
     fi
 
-    local ff_tmp
+    local ff_tmp=""
     ff_tmp="$(mktemp)"
 
     if fastfetch --pipe false 2>&1 | tee "$ff_tmp"; then
@@ -858,23 +797,23 @@ print_post_install_next_steps() {
         printf '\n'
     fi
 
-	if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] || { command_exists gpg && ! gpg_has_secret_keys; }; then
-		print_info "GPG"
-	
-		if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ]; then
-			print_info "GPG was installed during this run"
-		fi
-	
-		if command_exists gpg && ! gpg_has_secret_keys; then
-			print_info "No GPG secret keys were found"
-			print_info "Retrieve your GPG key material from 1Password and import it"
-			print_info "Then set trust as needed"
-		else
-			print_info "Import or create keys, then set trust as needed"
-		fi
-	
-		printf '\n'
-	fi
+    if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] || { command_exists gpg && ! gpg_has_secret_keys; }; then
+        print_info "GPG"
+
+        if [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ]; then
+            print_info "GPG was installed during this run"
+        fi
+
+        if command_exists gpg && ! gpg_has_secret_keys; then
+            print_info "No GPG secret keys were found"
+            print_info "Retrieve your GPG key material from 1Password and import it"
+            print_info "Then set trust as needed"
+        else
+            print_info "Import or create keys, then set trust as needed"
+        fi
+
+        printf '\n'
+    fi
 
     if [ "$ALACRITTY_UPDATED" -eq 1 ]; then
         print_info "Alacritty"
