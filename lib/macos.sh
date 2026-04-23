@@ -341,6 +341,25 @@ MACOS_DEFAULTS_FINDER=(
     "Disable iCloud Desktop/Documents shortcut in Finder sidebar|standard|com.apple.finder|SidebarShowingiCloudDesktop|bool|false|finder"
 )
 
+safari_developer_features_enabled() {
+    local legacy=""
+    local sandbox=""
+
+    legacy="$(defaults read com.apple.Safari IncludeDevelopMenu 2>/dev/null || true)"
+    sandbox="$(defaults read com.apple.Safari.SandboxBroker ShowDevelopMenu 2>/dev/null || true)"
+
+    [ "$legacy" = "1" ] || [ "$sandbox" = "1" ]
+}
+
+if safari_developer_features_enabled; then
+    print_skip "Safari developer features already enabled"
+    mark_validated_ok
+else
+    SAFARI_DEVTOOLS_NEXT_STEP=1
+    print_info "Safari developer features are not enabled"
+    mark_validated_ok
+fi
+
 #######################################
 # Entry points
 #######################################

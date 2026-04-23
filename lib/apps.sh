@@ -824,4 +824,10 @@ print_post_install_next_steps() {
         print_info "Start a new shell session to fully apply zsh-related changes"
         printf '\n'
     fi
+    
+    if [ "$SAFARI_DEVTOOLS_NEXT_STEP" -eq 1 ]; then
+		print_info "Safari"
+		print_info "Enable Safari Settings > Advanced > Show features for web developers"
+		printf '\n'
+	fi
 }
