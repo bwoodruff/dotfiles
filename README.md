@@ -21,11 +21,14 @@ Designed to be:
 
 ## ━━ Quick Start
 
+On macOS, before running the bootstrap script, grant your terminal app Full Disk Access
+(System Settings → Privacy & Security → Full Disk Access). This is required for some
+settings writes, including Safari preferences.
+
 ```bash
 git clone https://github.com/bwoodruff/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ./install.sh
-```
 
 ---
 
