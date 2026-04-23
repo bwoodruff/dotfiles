@@ -1,6 +1,6 @@
 #   Dotfiles Bootstrap
 
-_Disclaimer: This repo is public primarily for my benefit. It makes it easier to utilize the project as intended. If I had to sign into GitHub before I could access the project, I’d first have to install and set up 1Password, install `gh`, run `gh auth login`, and so on. I want to be able to clone this repo, run the script, and have the essentials largely in place._
+_Disclaimer: This repo is public primarily for convenience. It allows the bootstrap process to run without requiring prior authentication (for example, installing 1Password or configuring `gh` first)._
 
 A cross-platform bootstrap script for configuring a fresh system with:
 
@@ -13,7 +13,7 @@ A cross-platform bootstrap script for configuring a fresh system with:
 Designed to be:
 
 - **idempotent** (safe to re-run)
-- **resilient** (never stops on failure)
+- **resilient** (continues execution even when individual steps fail)
 - **verifiable** (“trust but verify” after every step)
 - **visually clean** (fastfetch-style output with persistent progress bar)
 
@@ -21,29 +21,23 @@ Designed to be:
 
 ## ━━ Quick Start
 
-On macOS, before running the bootstrap script, grant your terminal app Full Disk Access
-(System Settings → Privacy & Security → Full Disk Access). This is required for some
-settings writes, including Safari preferences.
+On macOS, grant your terminal app **Full Disk Access** before running the script:
+
+_System Settings → Privacy & Security → Full Disk Access_
+
+This is required for some settings writes, including Safari preferences.
 
 ```bash
 git clone https://github.com/bwoodruff/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ./install.sh
+```
 
 ---
 
 ## ━━ What It Does
 
-```text
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Environment  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Homebrew     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Directory    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Packages     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Apps         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Config       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  macOS        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  Summary      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
+The bootstrap script runs in clearly defined phases, covering system setup, tooling, configuration, and validation. Each phase is idempotent and verified before moving on.
 
 ### Core features
 
@@ -221,7 +215,7 @@ Notes:
 
 - Desktop app uses its built-in auto-updater
 - Script does **not** modify 1Password application settings
-- Safari extension installation/enabling is nudged, not fully automated
+- Safari extension installation/enabling is nudged, not automated
 
 ### GPG
 
