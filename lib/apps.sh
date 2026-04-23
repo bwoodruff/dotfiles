@@ -714,8 +714,6 @@ run_fastfetch() {
         print_rule '─'
     fi
 
-    append_log "[INFO] Running fastfetch"
-
     if [ "$QUIET" = "1" ]; then
         if fastfetch >>"$LOG_FILE" 2>&1; then
             print_ok "fastfetch complete"
