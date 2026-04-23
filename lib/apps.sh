@@ -80,7 +80,7 @@ install_github_desktop() {
         return 1
     fi
 
-    if ! spinner_run "Extract GitHub Desktop" ditto -x -k "$zip_path" -d "$tmp_dir"; then
+    if ! spinner_run "Extract GitHub Desktop" ditto -x -k "$zip_path" "$tmp_dir"; then
         print_error "Failed to extract GitHub Desktop"
         rm -rf "$tmp_dir"
         mark_validated_fail
