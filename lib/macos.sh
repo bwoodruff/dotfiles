@@ -205,10 +205,22 @@ configure_hostname_once() {
 # Appearance (not in MACOS_DEFAULTS_COMMON)
 #######################################
 
+# Matches System Settings (unlike `defaults read` for AppleInterfaceStyle on recent macOS).
+macos_appearance_is_dark() {
+    local out=""
+    out="$(osascript -e 'tell application "System Events" to tell appearance preferences to get dark mode' 2>/dev/null | tr -d '\r\n' | tr '[:upper:]' '[:lower:]')"
+    [ "$out" = "true" ]
+}
+
 # Recent macOS builds often disagree between `defaults read` and what System Settings shows for
 # Light/Dark/Auto, so `macos_apply` skip logic is unsafe here. The General pane applies Dark via
 # the same System Events path we use; then we best-effort sync plist keys to match.
 macos_apply_dark_appearance() {
+    if macos_appearance_is_dark; then
+        print_skip "Dark appearance already set"
+        return 0
+    fi
+
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would set Dark appearance (System Events + defaults sync)"
         return 0
@@ -216,6 +228,12 @@ macos_apply_dark_appearance() {
 
     if ! spinner_run "Set Dark appearance" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true'; then
         print_error "Set Dark appearance failed (System Events). Grant Terminal (or your terminal app) access if macOS asks."
+        mark_validated_fail
+        return 1
+    fi
+
+    if ! macos_appearance_is_dark; then
+        print_error "Dark appearance change did not verify"
         mark_validated_fail
         return 1
     fi
