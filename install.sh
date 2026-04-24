@@ -10,6 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=lib/core.sh
 source "${SCRIPT_DIR}/lib/core.sh"
+
+# Detect platform early so OS-specific libraries can be sourced conditionally.
+detect_platform
+
 # shellcheck source=lib/packages.sh
 source "${SCRIPT_DIR}/lib/packages.sh"
 # shellcheck source=lib/config.sh
@@ -17,7 +21,9 @@ source "${SCRIPT_DIR}/lib/config.sh"
 # shellcheck source=lib/apps.sh
 source "${SCRIPT_DIR}/lib/apps.sh"
 # shellcheck source=lib/macos.sh
-source "${SCRIPT_DIR}/lib/macos.sh"
+if is_macos; then
+    source "${SCRIPT_DIR}/lib/macos.sh"
+fi
 # shellcheck source=lib/scheduling.sh
 source "${SCRIPT_DIR}/lib/scheduling.sh"
 
