@@ -413,7 +413,6 @@ print_warn() {
 
 print_error() {
     local msg="$1"
-    ERRORS=$((ERRORS + 1))
     print_tagged "${C_RED}" "$TAG_FAIL" "$msg" "1"
 }
 
@@ -541,6 +540,7 @@ acquire_lock() {
 
 mark_validated_fail() {
     VALIDATED_FAIL=$((VALIDATED_FAIL + 1))
+    ERRORS=$((ERRORS + 1))
 }
 
 verify_command_present() {
@@ -694,8 +694,11 @@ backup_if_exists() {
                     print_ok "Backed up: $target"
                     return 0
                 fi
+                print_error "Failed backup verification: $target"
+                return 1
             fi
-            print_error "Failed backup verification: $target"
+            print_error "Failed to back up: $target"
+            mark_validated_fail
             return 1
         else
             if spinner_run "Remove existing path $target" rm -rf "$target"; then
@@ -738,6 +741,7 @@ ensure_sudo_cached() {
 
     if [ ! -t 1 ]; then
         print_error "sudo required, but no interactive terminal is available"
+        mark_validated_fail
         return 1
     fi
 
