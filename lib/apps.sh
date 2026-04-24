@@ -117,6 +117,78 @@ install_github_desktop() {
 }
 
 #######################################
+# Alfred (macOS)
+#######################################
+
+alfred_app_bundle_path() {
+    local p=""
+    for p in /Applications/Alfred\ 5.app /Applications/Alfred\ 4.app /Applications/Alfred.app; do
+        if dir_exists "$p"; then
+            printf '%s\n' "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
+alfred_managed_by_homebrew() {
+    homebrew_available && brew list --cask alfred >/dev/null 2>&1
+}
+
+install_alfred_macos() {
+    if ! is_macos; then
+        print_skip "Alfred is only installed on macOS"
+        return 0
+    fi
+
+    if ! homebrew_available; then
+        print_warn "Homebrew unavailable; cannot install Alfred"
+        mark_validated_fail
+        return 1
+    fi
+
+    local existing=""
+    existing="$(alfred_app_bundle_path || true)"
+
+    if [ -n "$existing" ] && alfred_managed_by_homebrew; then
+        print_skip "Alfred already installed via Homebrew ($(app_bundle_short_version "$existing" || true))"
+        return 0
+    fi
+
+    if [ -n "$existing" ] && [ "$FORCE_BREW" != "1" ]; then
+        print_skip "Alfred found at $existing (not managed by Homebrew); skipping brew install (use --force-brew to install the Homebrew cask)"
+        return 0
+    fi
+
+    local force_args=()
+    if [ "$FORCE_BREW" = "1" ] && [ -n "$existing" ]; then
+        force_args=(--force)
+    fi
+
+    if spinner_run "Install Alfred via Homebrew cask" brew install --cask "${force_args[@]}" alfred; then
+        existing="$(alfred_app_bundle_path || true)"
+        if [ -z "$existing" ]; then
+            print_error "Alfred cask install reported success but no Alfred.app was found in /Applications"
+            mark_validated_fail
+            return 1
+        fi
+
+        if ! clear_quarantine_if_present "$existing"; then
+            return 1
+        fi
+
+        ALFRED_INSTALLED_THIS_RUN=1
+        INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
+        print_ok "Installed Alfred ($(app_bundle_short_version "$existing" || true))"
+        return 0
+    fi
+
+    print_error "Could not install Alfred via Homebrew"
+    mark_validated_fail
+    return 1
+}
+
+#######################################
 # Alacritty
 #######################################
 
@@ -308,6 +380,8 @@ install_or_update_alacritty() {
 
 ONEPASSWORD_MAC_APP="/Applications/1Password.app"
 ONEPASSWORD_SAFARI_APP="/Applications/1Password for Safari.app"
+# Mac App Store ADAM ID (https://apps.apple.com/app/id1569813296)
+ONEPASSWORD_SAFARI_MAS_ID=1569813296
 
 onepassword_mac_version() {
     app_bundle_short_version "$ONEPASSWORD_MAC_APP"
@@ -586,27 +660,105 @@ install_1password_cli_linux() {
 }
 
 #######################################
-# 1Password preferences / browser guidance
+# 1Password for Safari (Mac App Store via mas)
 #######################################
 
-check_1password_safari_status() {
+mas_output_suggests_app_store_signin() {
+    local log_file="$1"
+
+    if [ ! -f "$log_file" ]; then
+        return 1
+    fi
+
+    if grep -qiE \
+        'sign[[:space:]]*in|not signed|apple[[:space:]]*id|authenticate|authentication|account|media[[:space:]]*&|purchases|re-?download|not available|store|password|touch[[:space:]]*id|verification failed|unable to complete|no.*logged|logged in' \
+        "$log_file"
+    then
+        return 0
+    fi
+
+    return 1
+}
+
+install_1password_safari_via_mas() {
     if ! is_macos; then
         return 0
     fi
 
     if dir_exists "$ONEPASSWORD_SAFARI_APP"; then
         print_skip "1Password for Safari app is present"
-    else
-        print_info "1Password for Safari app not detected"
-        ONEPASSWORD_SAFARI_NEXT_STEP=1
+        return 0
     fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        print_info "[dry-run] Would install 1Password for Safari via mas (ID $ONEPASSWORD_SAFARI_MAS_ID)"
+        return 0
+    fi
+
+    if ! homebrew_available; then
+        print_warn "Homebrew unavailable; cannot install 1Password for Safari via mas"
+        return 0
+    fi
+
+    if ! command_exists mas; then
+        if spinner_run "Install mas via Homebrew" brew install mas; then
+            INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
+            print_ok "Installed mas ($(mas version 2>/dev/null | head -n1 || echo unknown))"
+        else
+            print_warn "Could not install mas; skipping 1Password for Safari"
+            return 0
+        fi
+    fi
+
+    if ! command_exists mas; then
+        print_warn "mas CLI still not available after install attempt; skipping 1Password for Safari"
+        return 0
+    fi
+
+    if ! ensure_sudo_cached; then
+        print_warn "Cannot cache sudo credentials; skipping mas install for 1Password for Safari"
+        return 0
+    fi
+
+    sudo -v
+
+    local mas_log=""
+    mas_log="$(mktemp)"
+    if spinner_run "Install 1Password for Safari (Mac App Store via mas)" \
+        bash -c "set -o pipefail; sudo mas get '${ONEPASSWORD_SAFARI_MAS_ID}' >'${mas_log}' 2>&1"
+    then
+        if dir_exists "$ONEPASSWORD_SAFARI_APP"; then
+            if ! clear_quarantine_if_present "$ONEPASSWORD_SAFARI_APP"; then
+                rm -f "$mas_log"
+                return 1
+            fi
+            ONEPASSWORD_SAFARI_INSTALLED_THIS_RUN=1
+            print_ok "Installed 1Password for Safari ($(app_bundle_short_version "$ONEPASSWORD_SAFARI_APP" || true))"
+            rm -f "$mas_log"
+            return 0
+        fi
+
+        print_warn "mas finished but 1Password for Safari is not in /Applications yet (try again after Spotlight indexes, or install from the Mac App Store)"
+        if mas_output_suggests_app_store_signin "$mas_log"; then
+            MAS_APP_STORE_SIGNIN_NEXT_STEP=1
+        fi
+        rm -f "$mas_log"
+        return 0
+    fi
+
+    print_warn "Could not install 1Password for Safari via mas"
+    if mas_output_suggests_app_store_signin "$mas_log"; then
+        MAS_APP_STORE_SIGNIN_NEXT_STEP=1
+    fi
+    rm -f "$mas_log"
+    return 0
 }
 
 install_1password_stack() {
     case "$PLATFORM" in
         mac)
             install_1password_mac_app
-            check_1password_safari_status
+            install_1password_safari_via_mas
             install_1password_cli_macos
             ;;
         linux)
@@ -675,8 +827,10 @@ has_next_steps() {
     || [ "$GPG_INSTALLED_THIS_RUN" -eq 1 ] \
     || { command_exists gpg && ! gpg_has_secret_keys; } \
     || [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
-    || [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
+    || [ "$ONEPASSWORD_SAFARI_INSTALLED_THIS_RUN" -eq 1 ] \
     || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ] \
+    || [ "$MAS_APP_STORE_SIGNIN_NEXT_STEP" -eq 1 ] \
+    || [ "$ALFRED_INSTALLED_THIS_RUN" -eq 1 ] \
     || [ "$ALACRITTY_UPDATED" -eq 1 ] \
     || [ -n "${ZSH_VERSION:-}" ]
 }
@@ -700,20 +854,37 @@ print_post_install_next_steps() {
         printf '\n'
     fi
 
+    if [ "$MAS_APP_STORE_SIGNIN_NEXT_STEP" -eq 1 ]; then
+        print_info "Mac App Store"
+        print_info "Open the App Store app and sign in with your Apple ID (Store menu or Account)"
+        print_info "Free downloads may still require Apple ID authentication (Touch ID or password) once per app"
+        print_info "Then re-run this installer if 1Password for Safari did not install"
+        printf '\n'
+    fi
+
     if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ] \
-        || [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ] \
+        || [ "$ONEPASSWORD_SAFARI_INSTALLED_THIS_RUN" -eq 1 ] \
         || [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
         print_info "1Password"
         if [ "$ONEPASSWORD_INSTALLED_THIS_RUN" -eq 1 ]; then
             print_info "Open and sign in to the 1Password desktop app"
         fi
-        if [ "$ONEPASSWORD_SAFARI_NEXT_STEP" -eq 1 ]; then
-            print_info "Install 1Password for Safari from the Mac App Store"
-            print_info "Then enable it in Safari Settings > Extensions"
+        if [ "$ONEPASSWORD_SAFARI_INSTALLED_THIS_RUN" -eq 1 ]; then
+            print_info "In Safari: Settings > Extensions — enable 1Password for Safari"
         fi
         if [ "$ONEPASSWORD_CLI_INSTALLED_THIS_RUN" -eq 1 ]; then
             print_info "Run: op signin"
         fi
+        printf '\n'
+    fi
+
+    if [ "$ALFRED_INSTALLED_THIS_RUN" -eq 1 ]; then
+        print_info "Alfred"
+        print_info "Alfred Preferences > Advanced > Set preferences folder to your AlfredSync folder in iCloud Drive"
+        print_info "Typical path: ~/Library/Mobile Documents/com~apple~CloudDocs/AlfredSync"
+        print_info "See https://www.alfredapp.com/help/advanced/sync/ — keep Alfred.alfredpreferences downloaded (e.g. Keep Downloaded) if you use iCloud"
+        print_info "System Settings > Keyboard > Keyboard Shortcuts > Spotlight: change Show Spotlight search away from Command Space (e.g. Option Space)"
+        print_info "Then set Alfred’s hotkey to Command Space in Alfred Preferences > General"
         printf '\n'
     fi
 

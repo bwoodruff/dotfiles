@@ -48,13 +48,14 @@ The bootstrap script runs in phases for setup, tooling, configuration, and valid
   - Alacritty
   - GitHub CLI (`gh`)
   - GitHub Desktop
-  - 1Password
+  - Alfred (Homebrew cask when no existing install, or when `--force-brew` overrides a non-Homebrew copy)
+  - 1Password (desktop, **1Password for Safari** via `mas` + Mac App Store, CLI)
   - GPG
 - Sets up:
   - `.zshrc`, `.vimrc`, tmux config, etc.
   - Oh My Zsh + Powerlevel10k
-- Applies macOS preferences through a declarative defaults engine
-- Applies Finder preferences through the same validation model
+- Applies macOS preferences through a declarative defaults engine (including menu bar clock and Dock)
+- Applies Dock and Finder preferences through the same validation model
 - Installs fonts
 - Verifies outcomes after each step
 - Automatically clears macOS quarantine attributes for downloaded binaries when appropriate
@@ -178,7 +179,8 @@ Quick reference for what runs where:
 - **macOS-only**
   - Homebrew bootstrap task
   - GitHub Desktop install
-  - declarative macOS/Finder preferences
+  - Alfred (Homebrew cask), **1Password for Safari** (`mas` + `sudo mas get`, requires Mac App Store Apple ID)
+  - declarative macOS / Dock / Finder preferences
   - launchd scheduler path
 - **Linux-only**
   - Linux package-manager install paths (`apt` / `dnf` / `pacman`)
@@ -199,7 +201,10 @@ Operational notes to know before running:
   - the script caches sudo credentials when required
 - **Restarts and reloads**
   - Finder may be restarted if Finder preferences changed
+  - Dock may be restarted if Dock preferences changed
   - tmux config reload is skipped in scheduled mode
+- **Mac App Store (`mas`)**
+  - installing App Store apps uses **`sudo`** (cached like Homebrew when possible) and an **Apple ID signed into the App Store**; there is no `mas sign-in` for current macOS. If install fails, next steps tell you to open the App Store and sign in, then re-run
 - **Scheduled mode behavior**
   - `--scheduled` implies `--pull-dotfiles` and quiet/non-interactive behavior
   - prompt-driven actions are skipped
@@ -220,8 +225,8 @@ Operational notes to know before running:
     ├── core.sh        # logging, UI, progress bar, task runner, shared helpers
     ├── packages.sh    # package managers + package install/upgrade logic
     ├── config.sh      # symlinks, dotfiles self-update, fonts, vim, tmux
-    ├── apps.sh        # app installs (Alacritty, GitHub Desktop, 1Password, fastfetch, etc.)
-    ├── macos.sh       # macOS defaults, Finder prefs, hostname handling
+    ├── apps.sh        # app installs (Alacritty, GitHub Desktop, Alfred, 1Password + mas, fastfetch, etc.)
+    ├── macos.sh       # macOS defaults, Dock, Finder prefs, hostname handling
     └── scheduling.sh  # launchd / cron setup
 ```
 
@@ -301,17 +306,23 @@ On macOS, installed from GitHub’s official distribution if not already present
 
 ### 1Password
 
-Install order:
+Install order on macOS:
 
-1. Desktop app (if not present)
-2. Safari extension reminder/check
-3. CLI (`op`)
+1. Desktop app via Homebrew cask (if not present)
+2. **1Password for Safari** via Homebrew **`mas`** + **`sudo mas get`** on the Mac App Store ID `1569813296` (skipped if the app is already in `/Applications`)
+3. CLI (`op`) via Homebrew cask or Linux packages
 
 Notes:
 
 - Desktop app uses its built-in auto-updater
-- Script does **not** modify 1Password application settings
-- Safari extension installation/enabling is prompted, not automated
+- The script does **not** modify 1Password application settings inside the apps
+- **`mas`** is installed with Homebrew only when the Safari step needs it (it is not part of the generic Linux package list)
+- Mac App Store installs need an Apple ID session in the App Store app; the installer cannot sign in for you. If `mas` fails for account reasons, **Next steps** tells you to open the App Store, sign in, and re-run
+- After a successful Safari app install, **Next steps** reminds you to enable the extension under Safari **Settings → Extensions**
+
+### Alfred
+
+On macOS, **Alfred** is installed with **`brew install --cask alfred`** when no Alfred app is found under `/Applications`, or when **`--force-brew`** is set and your existing copy is not managed by Homebrew (see `install_alfred_macos` in `lib/apps.sh`). The script does not change Spotlight shortcuts or Alfred’s sync folder; **Next steps** points you at your **AlfredSync** folder in iCloud Drive and the usual Spotlight / Alfred hotkey setup.
 
 ### GPG
 
@@ -344,7 +355,18 @@ Most macOS defaults are now applied through a reusable declarative engine that:
 - writes only when needed
 - verifies after writing
 
-This includes global defaults (for example appearance/accent, Safari, trackpad, and save/print panel preferences) plus Finder preferences.
+This includes global defaults (for example appearance/accent, Safari, trackpad, save/print panel preferences, and **menu bar clock**: 24-hour time, **ShowDate = 1** to match `com.apple.menuextra.clock`, **ShowAMPM** off for 24-hour display, **DateFormat** `MM/dd/yyyy` when the system honors that key) plus **Dock** and **Finder** preferences.
+
+Apple may rename or relocate some clock controls on newer macOS; if a defaults line fails verification, check `defaults read com.apple.menuextra.clock` and adjust `MACOS_DEFAULTS_COMMON` in `lib/macos.sh`.
+
+### Dock
+
+Dock preferences (same engine):
+
+- autohide enabled
+- **Recent applications** in the Dock hidden (`show-recents` false)
+
+Dock is restarted only if something changed (skipped in scheduled mode, same pattern as Finder).
 
 ### Finder
 

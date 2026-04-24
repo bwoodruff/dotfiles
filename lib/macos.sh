@@ -81,7 +81,10 @@ macos_apply() {
         verify="$(macos_normalize "$type" "$verify")"
 
         if [ "$verify" = "$desired" ]; then
-            [ "$restart_target" = "finder" ] && FINDER_PREFS_CHANGED=1
+            case "$restart_target" in
+                finder) FINDER_PREFS_CHANGED=1 ;;
+                dock) DOCK_PREFS_CHANGED=1 ;;
+            esac
             return 0
         fi
 
@@ -278,6 +281,15 @@ MACOS_DEFAULTS_COMMON=(
     "Disable Safari autofill passwords|standard|com.apple.Safari|AutoFillPasswords|bool|false|"
     "Disable Safari autofill credit cards|standard|com.apple.Safari|AutoFillCreditCardData|bool|false|"
     "Disable Safari autofill misc|standard|com.apple.Safari|AutoFillMiscellaneousForms|bool|false|"
+    "Menu bar 24-hour clock|standard|com.apple.menuextra.clock|Show24Hour|bool|true|"
+    "Menu bar hide AM/PM (24-hour display)|standard|com.apple.menuextra.clock|ShowAMPM|bool|false|"
+    "Menu bar show date|standard|com.apple.menuextra.clock|ShowDate|int|1|"
+    "Menu bar date format|standard|com.apple.menuextra.clock|DateFormat|string|MM/dd/yyyy|"
+)
+
+MACOS_DEFAULTS_DOCK=(
+    "Dock autohide|standard|com.apple.dock|autohide|bool|true|dock"
+    "Dock hide recent apps|standard|com.apple.dock|show-recents|bool|false|dock"
 )
 
 MACOS_DEFAULTS_FINDER=(
@@ -343,6 +355,29 @@ configure_global_macos_preferences() {
     macos_apply_dark_appearance
     configure_hostname_once
     apply_records "${MACOS_DEFAULTS_COMMON[@]}"
+}
+
+configure_dock_preferences() {
+    if ! is_macos; then
+        print_skip "Dock preferences not relevant on non-macOS"
+        return 0
+    fi
+
+    if ! is_interactive; then
+        print_skip "Skipping Dock preferences in non-interactive mode"
+        return 0
+    fi
+
+    DOCK_PREFS_CHANGED=0
+    apply_records "${MACOS_DEFAULTS_DOCK[@]}"
+
+    if [ "${DOCK_PREFS_CHANGED:-0}" = "1" ]; then
+        if [ "$SCHEDULED" = "1" ]; then
+            print_skip "Scheduled mode: skipping Dock restart"
+        else
+            spinner_run "Restart Dock" killall Dock || true
+        fi
+    fi
 }
 
 configure_finder_preferences() {
