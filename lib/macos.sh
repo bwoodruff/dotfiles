@@ -309,12 +309,17 @@ safari_developer_features_enabled() {
     [ "$legacy" = "1" ] || [ "$sandbox" = "1" ]
 }
 
-if safari_developer_features_enabled; then
-    print_skip "Safari developer features already enabled"
-else
-    SAFARI_DEVTOOLS_NEXT_STEP=1
-    print_info "Safari developer features are not enabled"
-fi
+# Sets SAFARI_DEVTOOLS_NEXT_STEP for post-install hints; run from configure_global_macos_preferences
+# (not at file scope — that would print before Environment and before logging initializes).
+macos_safari_developer_status_message() {
+    if safari_developer_features_enabled; then
+        print_skip "Safari developer features already enabled"
+        SAFARI_DEVTOOLS_NEXT_STEP=0
+    else
+        SAFARI_DEVTOOLS_NEXT_STEP=1
+        print_info "Safari developer features are not enabled"
+    fi
+}
 
 #######################################
 # Entry points
@@ -334,6 +339,7 @@ configure_global_macos_preferences() {
     osascript -e 'tell application "System Settings" to quit' 2>/dev/null || true
     osascript -e 'tell application "System Preferences" to quit' 2>/dev/null || true
 
+    macos_safari_developer_status_message
     macos_apply_dark_appearance
     configure_hostname_once
     apply_records "${MACOS_DEFAULTS_COMMON[@]}"
