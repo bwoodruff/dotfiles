@@ -33,6 +33,8 @@ cd ~/dotfiles
 ./install.sh
 ```
 
+On the first run, if your `git` `origin` is behind the remote (same branch) and a fast-forward is possible, the script fetches, pulls, and **restarts itself once** so the rest of the run uses the current repo contents (including any updated `lib/*.sh` files). Use `--no-auto-update` to skip that.
+
 ---
 
 ## ━━ What It Does
@@ -73,6 +75,20 @@ You can safely run the script repeatedly:
 ```
 
 Nothing should be duplicated or broken on re-run. The script checks current state first and only changes what needs changing.
+
+### Self-update
+
+By default, the bootstrap compares your checked-out branch to `origin` (no version tags or releases: it uses `git` commits on the current branch). If you are **behind** the remote, the working tree is **clean**, and a **fast-forward** is possible, it runs `git pull --ff-only` and **re-executes** `install.sh` with the same arguments so loaded shell code matches the tree on disk. The second run will not pull again in a loop.
+
+Self-update is skipped when it would be unsafe or ambiguous, including: dry-run mode, a dirty working tree, local commits not on the remote, pull or fetch errors, a detached `HEAD`, and when `origin` is not a clone of this repo (unless you allow it; see the table below). The install script and `DOTFILES_DIR` are expected to point at the same repository.
+
+`--pull-dotfiles` (for example in scheduled mode) still runs a pull during the **Git** task, but the **default self-update** runs earlier. If a self-update already pulled, the later pull is skipped as redundant.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DOTFILES_AUTO_UPDATE` | `1` | Set to `0` to never fetch/restart for updates (same as `--no-auto-update`) |
+| `DOTFILES_UPSTREAM_GITHUB` | `bwoodruff/dotfiles` | Expected `org/repo` for `origin` (after normalizing `https` / `git@` URLs) |
+| `DOTFILES_SELF_UPDATE_ANY_ORIGIN` | `0` | Set to `1` to run self-update even when `origin` is not that GitHub path (for example a fork) |
 
 ---
 
@@ -142,6 +158,7 @@ This keeps output concise while still surfacing manual follow-up.
 | `--quiet` | Reduce terminal output |
 | `--scheduled` | Non-interactive maintenance mode; implies `--pull-dotfiles` and skips prompts/runtime reloads |
 | `--pull-dotfiles` | Run `git pull --ff-only` in `~/dotfiles` before applying changes |
+| `--no-auto-update` | Do not fetch / fast-forward / re-exec at startup (see [Self-update](#self-update)) |
 | `--strict-optional-configs` | Treat missing optional config sources as warnings |
 | `--no-schedule` | Do not create/check the weekly scheduled run |
 | `--no-upgrade` | Skip package-manager update/upgrade step |
@@ -156,7 +173,7 @@ Quick reference for what runs where:
 - **Runs on both macOS and Linux**
   - package checks and upgrades
   - symlink/config setup
-  - git/dotfiles update flow
+  - git / dotfiles update flow (default [self-update](#self-update) at startup, optional `--pull-dotfiles` in the Git task)
   - fonts, vim, tmux, GPG, 1Password, scheduling, fastfetch
 - **macOS-only**
   - Homebrew bootstrap task
@@ -186,6 +203,8 @@ Operational notes to know before running:
 - **Scheduled mode behavior**
   - `--scheduled` implies `--pull-dotfiles` and quiet/non-interactive behavior
   - prompt-driven actions are skipped
+- **Network and git**
+  - unless `--no-auto-update` or `DOTFILES_AUTO_UPDATE=0`, the script may contact `git` `origin` once at the start; it does not send telemetry beyond normal `git` operations
 - **Write locations**
   - updates files under your dotfiles targets and writes logs to `~/.local/state/dotfiles/`
   - can modify package-manager state and installed applications
@@ -200,7 +219,7 @@ Operational notes to know before running:
 └── lib/
     ├── core.sh        # logging, UI, progress bar, task runner, shared helpers
     ├── packages.sh    # package managers + package install/upgrade logic
-    ├── config.sh      # symlinks, dotfiles repo helpers, fonts, vim, tmux
+    ├── config.sh      # symlinks, dotfiles self-update, fonts, vim, tmux
     ├── apps.sh        # app installs (Alacritty, GitHub Desktop, 1Password, fastfetch, etc.)
     ├── macos.sh       # macOS defaults, Finder prefs, hostname handling
     └── scheduling.sh  # launchd / cron setup
