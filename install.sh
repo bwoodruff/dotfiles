@@ -92,17 +92,9 @@ task_environment() {
     print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES"
 }
 
-task_homebrew() {
-    install_homebrew_if_needed
-}
-
 task_directory_setup() {
     ensure_dir "$CONFIG_HOME"
     ensure_dir "${HOME}/.tmux/plugins"
-}
-
-task_package_upgrades() {
-    upgrade_packages
 }
 
 task_package_checks() {
@@ -112,10 +104,6 @@ task_package_checks() {
         IFS='|' read -r command_name package_name <<< "$package_spec"
         ensure_command "$command_name" "$package_name"
     done
-}
-
-task_alacritty() {
-    install_or_update_alacritty
 }
 
 task_git() {
@@ -140,14 +128,6 @@ task_git() {
     fi
 
     configure_git "$GIT_BIN"
-}
-
-task_github_desktop() {
-    install_github_desktop
-}
-
-task_remove_neofetch() {
-    remove_neofetch_if_installed
 }
 
 task_cloned_tools() {
@@ -188,10 +168,6 @@ task_tmux() {
     reload_tmux_config_if_running
 }
 
-task_1password() {
-    install_1password_stack
-}
-
 task_gpg() {
     if command_exists gpg; then
         local gpg_ver=""
@@ -210,14 +186,6 @@ task_gpg() {
 task_macos_preferences() {
     configure_global_macos_preferences
     configure_finder_preferences
-}
-
-task_scheduling() {
-    setup_schedule
-}
-
-task_fastfetch() {
-    run_fastfetch
 }
 
 task_summary() {
@@ -246,24 +214,24 @@ task_summary() {
 
 TASKS=(
     "Environment|task_environment|all|0"
-    "Homebrew|task_homebrew|mac|0"
+    "Homebrew|install_homebrew_if_needed|mac|0"
     "Directory setup|task_directory_setup|all|0"
-    "Package upgrades|task_package_upgrades|all|0"
+    "Package upgrades|upgrade_packages|all|0"
     "Package checks|task_package_checks|all|0"
-    "Alacritty|task_alacritty|mac|0"
+    "Alacritty|install_or_update_alacritty|mac|0"
     "Git|task_git|all|0"
-    "GitHub Desktop|task_github_desktop|mac|0"
-    "Remove neofetch|task_remove_neofetch|all|0"
+    "GitHub Desktop|install_github_desktop|mac|0"
+    "Remove neofetch|remove_neofetch_if_installed|all|0"
     "Cloned tools|task_cloned_tools|all|0"
     "Config symlinks|task_config_symlinks|all|0"
     "Vim|task_vim|all|0"
     "Fonts|task_fonts|all|0"
     "tmux|task_tmux|all|0"
-    "1Password|task_1password|all|0"
+    "1Password|install_1password_stack|all|0"
     "GPG|task_gpg|all|0"
     "macOS preferences|task_macos_preferences|mac|1"
-    "Scheduling|task_scheduling|all|0"
-    "fastfetch|task_fastfetch|all|0"
+    "Scheduling|setup_schedule|all|0"
+    "fastfetch|run_fastfetch|all|0"
     "Summary|task_summary|all|0"
 )
 
