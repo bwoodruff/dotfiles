@@ -478,15 +478,7 @@ install_1password_linux_app() {
     if apt_available; then
         ensure_1password_linux_repo_apt || return 1
         if spinner_run "Install 1Password for Linux" sudo apt-get install -y 1password; then
-            if onepassword_linux_installed; then
-                INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                ONEPASSWORD_INSTALLED_THIS_RUN=1
-                print_ok "Installed 1Password for Linux ($(onepassword_linux_version || true))"
-                mark_validated_ok
-            else
-                print_error "1Password install reported success but command is still missing"
-                mark_validated_fail
-            fi
+            mark_1password_linux_installed
         else
             print_error "Could not install 1Password for Linux"
             mark_validated_fail
@@ -494,15 +486,7 @@ install_1password_linux_app() {
     elif dnf_available; then
         ensure_1password_linux_repo_dnf || return 1
         if spinner_run "Install 1Password for Linux" sudo dnf install -y 1password; then
-            if onepassword_linux_installed; then
-                INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                ONEPASSWORD_INSTALLED_THIS_RUN=1
-                print_ok "Installed 1Password for Linux ($(onepassword_linux_version || true))"
-                mark_validated_ok
-            else
-                print_error "1Password install reported success but command is still missing"
-                mark_validated_fail
-            fi
+            mark_1password_linux_installed
         else
             print_error "Could not install 1Password for Linux"
             mark_validated_fail
@@ -517,6 +501,28 @@ install_1password_linux_app() {
 #######################################
 # 1Password CLI (op)
 #######################################
+
+mark_1password_linux_installed() {
+    if onepassword_linux_installed; then
+        INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
+        ONEPASSWORD_INSTALLED_THIS_RUN=1
+        print_ok "Installed 1Password for Linux ($(onepassword_linux_version || true))"
+        mark_validated_ok
+    else
+        print_error "1Password install reported success but command is still missing"
+        mark_validated_fail
+    fi
+}
+
+mark_1password_cli_installed() {
+    if verify_command_present "op"; then
+        INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
+        ONEPASSWORD_CLI_INSTALLED_THIS_RUN=1
+        print_ok "Installed 1Password CLI ($(onepassword_cli_version || true))"
+    else
+        print_error "1Password CLI install reported success but op is still missing"
+    fi
+}
 
 onepassword_cli_installed() {
     command_exists op
@@ -545,19 +551,18 @@ install_1password_cli_macos() {
     fi
 
     if spinner_run "Install 1Password CLI via Homebrew" brew install --cask 1password-cli; then
-        if verify_command_present "op"; then
-            op_bin="$(command -v op)"
-
-            if ! clear_quarantine_if_present "$op_bin"; then
-                return 1
-            fi
-
-            INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-            ONEPASSWORD_CLI_INSTALLED_THIS_RUN=1
-            print_ok "Installed 1Password CLI ($(onepassword_cli_version || true))"
-        else
+        op_bin="$(command -v op 2>/dev/null || true)"
+        if [ -z "$op_bin" ]; then
             print_error "1Password CLI install reported success but op is still missing"
+            mark_validated_fail
+            return 1
         fi
+
+        if ! clear_quarantine_if_present "$op_bin"; then
+            return 1
+        fi
+
+        mark_1password_cli_installed
     else
         print_error "Could not install 1Password CLI"
         mark_validated_fail
@@ -576,13 +581,7 @@ install_1password_cli_linux() {
         ensure_1password_linux_repo_apt || return 1
 
         if spinner_run "Install 1Password CLI" sudo apt-get install -y 1password-cli; then
-            if verify_command_present "op"; then
-                INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                ONEPASSWORD_CLI_INSTALLED_THIS_RUN=1
-                print_ok "Installed 1Password CLI ($(onepassword_cli_version || true))"
-            else
-                print_error "1Password CLI install reported success but op is still missing"
-            fi
+            mark_1password_cli_installed
         else
             print_error "Could not install 1Password CLI"
             mark_validated_fail
@@ -590,13 +589,7 @@ install_1password_cli_linux() {
     elif dnf_available; then
         ensure_1password_linux_repo_dnf || return 1
         if spinner_run "Install 1Password CLI" sudo dnf install -y 1password-cli; then
-            if verify_command_present "op"; then
-                INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                ONEPASSWORD_CLI_INSTALLED_THIS_RUN=1
-                print_ok "Installed 1Password CLI ($(onepassword_cli_version || true))"
-            else
-                print_error "1Password CLI install reported success but op is still missing"
-            fi
+            mark_1password_cli_installed
         else
             print_error "Could not install 1Password CLI"
             mark_validated_fail
@@ -778,10 +771,10 @@ print_post_install_next_steps() {
         print_info "Start a new shell session to fully apply zsh-related changes"
         printf '\n'
     fi
-    
+
     if [ "$SAFARI_DEVTOOLS_NEXT_STEP" -eq 1 ]; then
-		print_info "Safari"
-		print_info "Enable Safari Settings > Advanced > Show features for web developers"
-		printf '\n'
-	fi
+        print_info "Safari"
+        print_info "Enable Safari Settings > Advanced > Show features for web developers"
+        printf '\n'
+    fi
 }

@@ -395,30 +395,30 @@ progress_advance() {
 #######################################
 
 print_info() {
-    emit_tagged_message "${C_DIM}" "$TAG_INFO" "$1" "0"
+    print_tagged "${C_DIM}" "$TAG_INFO" "$1" "0"
 }
 
 print_ok() {
-    emit_tagged_message "${C_GREEN}" "$TAG_OK" "$1" "0"
+    print_tagged "${C_GREEN}" "$TAG_OK" "$1" "0"
 }
 
 print_skip() {
-    emit_tagged_message "${C_DIM}" "$TAG_SKIP" "$1" "0"
+    print_tagged "${C_DIM}" "$TAG_SKIP" "$1" "0"
 }
 
 print_warn() {
     local msg="$1"
     WARNINGS=$((WARNINGS + 1))
-    emit_tagged_message "${C_YELLOW}" "$TAG_WARN" "$msg" "1"
+    print_tagged "${C_YELLOW}" "$TAG_WARN" "$msg" "1"
 }
 
 print_error() {
     local msg="$1"
     ERRORS=$((ERRORS + 1))
-    emit_tagged_message "${C_RED}" "$TAG_FAIL" "$msg" "1"
+    print_tagged "${C_RED}" "$TAG_FAIL" "$msg" "1"
 }
 
-emit_tagged_message() {
+print_tagged() {
     local color="$1"
     local tag="$2"
     local msg="$3"
@@ -617,7 +617,7 @@ verify_permission_not_group_other_writable() {
     last_two="${perms#${perms%??}}"
 
     case "$last_two" in
-        [2367][2367]|[2367][2367]) mark_validated_fail; return 1 ;;
+        [2367][2367]) mark_validated_fail; return 1 ;;
     esac
 
     mark_validated_ok
@@ -783,12 +783,14 @@ task_should_run() {
 run_tasks() {
     local task_record=""
     local section_name=""
+    local function_spec=""
     local function_name=""
+    local function_names=()
     local platform_scope=""
     local interactive_required=""
 
     for task_record in "$@"; do
-        IFS='|' read -r section_name function_name platform_scope interactive_required <<< "$task_record"
+        IFS='|' read -r section_name function_spec platform_scope interactive_required <<< "$task_record"
 
         if ! task_should_run "$platform_scope" "$interactive_required"; then
             continue
@@ -796,11 +798,14 @@ run_tasks() {
 
         start_section "$section_name"
 
-        if declare -F "$function_name" >/dev/null 2>&1; then
-            "$function_name"
-        else
-            print_error "Task function not found: $function_name"
-            mark_validated_fail
-        fi
+        IFS=',' read -r -a function_names <<< "$function_spec"
+        for function_name in "${function_names[@]}"; do
+            if declare -F "$function_name" >/dev/null 2>&1; then
+                "$function_name"
+            else
+                print_error "Task function not found: $function_name"
+                mark_validated_fail
+            fi
+        done
     done
 }

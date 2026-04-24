@@ -2,7 +2,7 @@
 
 _Disclaimer: This repo is public primarily for convenience. It allows the bootstrap process to run without requiring prior authentication (for example, installing 1Password or configuring `gh` first)._
 
-A cross-platform bootstrap script for configuring a fresh system with:
+A cross-platform bootstrap script for bringing up a fresh machine with:
 
 - shell + terminal setup
 - developer tooling
@@ -10,12 +10,12 @@ A cross-platform bootstrap script for configuring a fresh system with:
 - macOS preferences
 - applications (Alacritty, GitHub Desktop, 1Password, etc.)
 
-Designed to be:
+Goals:
 
 - **idempotent** (safe to re-run)
-- **resilient** (continues execution even when individual steps fail)
-- **verifiable** (“trust but verify” after every step)
-- **visually clean** (fastfetch-style output with persistent progress bar)
+- **resilient** (keeps going when individual steps fail)
+- **verifiable** (checks results after each action)
+- **readable** (clear tagged output with a persistent progress bar)
 
 ---
 
@@ -37,9 +37,9 @@ cd ~/dotfiles
 
 ## ━━ What It Does
 
-The bootstrap script runs in clearly defined phases, covering system setup, tooling, configuration, and validation. Each phase is idempotent and verified before moving on.
+The bootstrap script runs in phases for setup, tooling, configuration, and validation.
 
-### Core features
+### Core Features
 
 - Installs and updates packages via Homebrew (macOS) or the system package manager (Linux)
 - Installs apps like:
@@ -54,7 +54,7 @@ The bootstrap script runs in clearly defined phases, covering system setup, tool
 - Applies macOS preferences through a declarative defaults engine
 - Applies Finder preferences through the same validation model
 - Installs fonts
-- Runs validation after every step
+- Verifies outcomes after each step
 - Automatically clears macOS quarantine attributes for downloaded binaries when appropriate
 - Supports scheduled maintenance runs
 
@@ -76,16 +76,16 @@ Nothing should be duplicated or broken on re-run. The script checks current stat
 
 ---
 
-### Trust but Verify
+### Trust But Verify
 
-Every action is validated (“trust but verify”):
+Actions are validated where practical:
 
 - install → check binary or app exists
 - symlink → verify correct target
 - defaults write → read back and verify expected value
 - permissions/xattrs → re-check resulting state
 
-Failures are logged but the script continues as far as it reasonably can.
+Failures are logged, and execution continues when safe.
 
 ---
 
@@ -97,11 +97,11 @@ Logs are written to:
 ~/.local/state/dotfiles/install.log
 ```
 
-Features:
+Logging behavior:
 
 - timestamped entries
 - structured output
-- command output indented underneath the relevant action
+- command output grouped under the relevant action
 - log retention
 - clear end-of-run summary counters
 
@@ -112,20 +112,20 @@ Features:
 - sectioned output
 - clean `[INFO] [RUN] [OK] [WARN] [FAIL] [SKIP]` tags
 - persistent progress bar
-- optional fastfetch block near the end
+- optional `fastfetch` block near the end
 - readable spacing and grouping
 
 ---
 
 ### Next Steps
 
-The script may output a **Next steps** section at the end of the run.
+The script may print a **Next steps** section at the end of the run.
 
 - Only shown when manual follow-up is required
 - Organized by tool (for example GitHub CLI, 1Password, or GPG)
 - Each subsection appears only when relevant
 
-This keeps output clean while still surfacing the things you actually need to do.
+This keeps output concise while still surfacing manual follow-up.
 
 ---
 
@@ -149,6 +149,49 @@ This keeps output clean while still surfacing the things you actually need to do
 
 ---
 
+## ━━ Platform Behavior Matrix
+
+Quick reference for what runs where:
+
+- **Runs on both macOS and Linux**
+  - package checks and upgrades
+  - symlink/config setup
+  - git/dotfiles update flow
+  - fonts, vim, tmux, GPG, 1Password, scheduling, fastfetch
+- **macOS-only**
+  - Homebrew bootstrap task
+  - GitHub Desktop install
+  - declarative macOS/Finder preferences
+  - launchd scheduler path
+- **Linux-only**
+  - Linux package-manager install paths (`apt` / `dnf` / `pacman`)
+  - cron scheduler path
+- **Interactive-only behaviors**
+  - prompt-driven hostname setup
+  - macOS preference task execution
+  - live progress UI
+
+---
+
+## ━━ Safety And Side Effects
+
+Operational notes to know before running:
+
+- **Privilege use**
+  - some install and system-level operations use `sudo`
+  - the script caches sudo credentials when required
+- **Restarts and reloads**
+  - Finder may be restarted if Finder preferences changed
+  - tmux config reload is skipped in scheduled mode
+- **Scheduled mode behavior**
+  - `--scheduled` implies `--pull-dotfiles` and quiet/non-interactive behavior
+  - prompt-driven actions are skipped
+- **Write locations**
+  - updates files under your dotfiles targets and writes logs to `~/.local/state/dotfiles/`
+  - can modify package-manager state and installed applications
+
+---
+
 ## ━━ Project Structure
 
 ```text
@@ -163,22 +206,50 @@ This keeps output clean while still surfacing the things you actually need to do
     └── scheduling.sh  # launchd / cron setup
 ```
 
-Each module is intentionally scoped to keep the system maintainable and avoid one giant shell script.
+Each module is intentionally scoped to keep maintenance manageable and avoid one monolithic shell script.
 
 ---
 
 ## ━━ Task Runner
 
-The bootstrap flow is driven by a declarative task list in `install.sh`.
+The bootstrap flow is driven by a task list in `install.sh`.
 
 Each task defines:
 
 - section name
-- function to run
+- function(s) to run (comma-separated for multi-step sections)
 - platform scope
 - whether interactivity is required
 
-That keeps the top-level flow readable and makes it easier to reorder, add, or skip work without rewriting the whole script.
+This keeps the top-level flow easy to read and easy to change.
+
+---
+
+## ━━ Function Naming Conventions
+
+To keep shell code readable and avoid over-verbose helper names, functions follow a simple verb-first pattern:
+
+- `is_*` / `has_*` for predicates that return success/failure
+- `get_*` for value retrieval
+- `print_*` for user-facing output
+- `ensure_*` for idempotent "make sure this state exists"
+- `install_*`, `remove_*`, `configure_*`, `setup_*` for imperative actions
+- `verify_*` / `confirm_*` for post-action checks
+- `mark_*` for counter/state bookkeeping side effects
+
+Guidelines:
+
+- Prefer concise names that communicate intent in 2-4 words.
+- Avoid encoding implementation details in names unless needed for clarity.
+- Keep related naming consistent across modules (for example, all package-manager predicates end in `_available`).
+- If a helper only exists to support one flow, still name it as if it were a teammate-facing API.
+
+Examples from this repo:
+
+- `mark_command_installed`
+- `remove_neofetch_via`
+- `mark_1password_cli_installed`
+- `print_tagged`
 
 ---
 
@@ -186,11 +257,17 @@ That keeps the top-level flow readable and makes it easier to reorder, add, or s
 
 ### Alacritty
 
-Installed from GitHub releases rather than Homebrew.
+Install method depends on platform:
+
+- macOS: installed from the latest GitHub release DMG
+- Linux: installed via the system package manager (`apt`, `dnf`, or `pacman`)
 
 ### GitHub CLI (`gh`)
 
-Installed via Homebrew.
+Installed via the active package manager:
+
+- macOS: Homebrew
+- Linux: `apt`, `dnf`, or `pacman`
 
 If newly installed, the script may suggest:
 
@@ -205,7 +282,7 @@ On macOS, installed from GitHub’s official distribution if not already present
 
 ### 1Password
 
-Install flow:
+Install order:
 
 1. Desktop app (if not present)
 2. Safari extension reminder/check
@@ -215,7 +292,7 @@ Notes:
 
 - Desktop app uses its built-in auto-updater
 - Script does **not** modify 1Password application settings
-- Safari extension installation/enabling is nudged, not automated
+- Safari extension installation/enabling is prompted, not automated
 
 ### GPG
 
@@ -231,15 +308,11 @@ If GPG is installed but no secret keys are present, the script may suggest retri
 
 ## ━━ macOS Configuration
 
-macOS settings are applied in interactive mode.
+macOS settings are applied only in interactive runs (not `--scheduled` / non-interactive contexts).
 
-### Higher-level interactive preferences
+### Interactive-only preference
 
-The script can handle a small set of higher-level/personal preferences interactively, such as:
-
-- dark appearance
-- purple accent color
-- one-time hostname setup
+The only prompt-driven preference is one-time hostname setup.
 
 Hostname prompting is cookie-controlled so it is not repeated on every run.
 
@@ -252,7 +325,7 @@ Most macOS defaults are now applied through a reusable declarative engine that:
 - writes only when needed
 - verifies after writing
 
-This includes many of the lower-level defaults and Finder preferences.
+This includes global defaults (for example appearance/accent, Safari, trackpad, and save/print panel preferences) plus Finder preferences.
 
 ### Finder
 
@@ -274,7 +347,7 @@ Finder is restarted only if something actually changed and a restart is needed.
 
 ## ━━ Scheduling
 
-The script can self-schedule weekly maintenance runs.
+The script can configure weekly maintenance runs.
 
 - macOS → `launchd`
 - Linux → `cron`
@@ -296,14 +369,14 @@ Scheduling logic lives in its own module: `lib/scheduling.sh`.
 - **Readable output > clever output**
 - **No hidden magic**
 - **Respect existing system state**
-- **Prefer official distribution methods when they offer a better result**
+- **Prefer official distribution methods when they are a better fit**
 - **Refactor toward declarative patterns when it reduces repetition**
 
 ---
 
 ## ━━ Current Areas of Focus
 
-The repo has recently been moving toward:
+Recent refactoring themes:
 
 - a declarative task runner
 - a declarative macOS defaults engine
@@ -311,13 +384,13 @@ The repo has recently been moving toward:
 - less duplicated imperative shell code
 - more consistent validation and output
 
-Further refactoring is ongoing.
+Refactoring is ongoing.
 
 ---
 
 ## ━━ Attribution
 
-The persistent progress bar implementation in this project was developed with heavy inspiration from:
+The persistent progress bar implementation in this project was inspired by:
 
 - **pollev/bash_progress_bar**
   - https://github.com/pollev/bash_progress_bar
@@ -354,4 +427,4 @@ All other code in this repository is intentionally left **unlicensed** unless st
 
 ## ━━ Author
 
-Benjamin Woodruff with assistance from ChatGPT
+Benjamin Woodruff with assistance from ChatGPT/Cursor

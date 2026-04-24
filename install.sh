@@ -154,20 +154,6 @@ task_config_symlinks() {
     done
 }
 
-task_vim() {
-    install_vim_plug
-    install_vim_plugins
-}
-
-task_fonts() {
-    install_fonts
-}
-
-task_tmux() {
-    install_tmux_plugins
-    reload_tmux_config_if_running
-}
-
 task_gpg() {
     if command_exists gpg; then
         local gpg_ver=""
@@ -181,11 +167,6 @@ task_gpg() {
     else
         ensure_command "gpg" "gnupg"
     fi
-}
-
-task_macos_preferences() {
-    configure_global_macos_preferences
-    configure_finder_preferences
 }
 
 task_summary() {
@@ -224,12 +205,12 @@ TASKS=(
     "Remove neofetch|remove_neofetch_if_installed|all|0"
     "Cloned tools|task_cloned_tools|all|0"
     "Config symlinks|task_config_symlinks|all|0"
-    "Vim|task_vim|all|0"
-    "Fonts|task_fonts|all|0"
-    "tmux|task_tmux|all|0"
+    "Vim|install_vim_plug,install_vim_plugins|all|0"
+    "Fonts|install_fonts|all|0"
+    "tmux|install_tmux_plugins,reload_tmux_config_if_running|all|0"
     "1Password|install_1password_stack|all|0"
     "GPG|task_gpg|all|0"
-    "macOS preferences|task_macos_preferences|mac|1"
+    "macOS preferences|configure_global_macos_preferences,configure_finder_preferences|mac|1"
     "Scheduling|setup_schedule|all|0"
     "fastfetch|run_fastfetch|all|0"
     "Summary|task_summary|all|0"

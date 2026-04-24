@@ -202,12 +202,12 @@ upgrade_packages() {
     case "$PLATFORM" in
         mac)
             if homebrew_available; then
-				if spinner_run "brew update" brew update; then
-					mark_validated_ok
-				else
-					print_warn "brew update failed"
-					mark_validated_fail
-				fi
+                if spinner_run "brew update" brew update; then
+                    mark_validated_ok
+                else
+                    print_warn "brew update failed"
+                    mark_validated_fail
+                fi
 
                 local outdated_count=0
                 outdated_count="$(brew outdated --quiet 2>/dev/null | wc -l | tr -d ' ')"
@@ -302,6 +302,32 @@ upgrade_packages() {
 # Generic package install helpers
 #######################################
 
+mark_command_installed() {
+    local command_name="$1"
+    local track_gh="${2:-0}"
+    local version=""
+
+    if ! verify_command_present "$command_name"; then
+        print_error "Install reported success but command still missing: $command_name"
+        return 1
+    fi
+
+    INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
+    version="$(command_version "$command_name" || true)"
+    if [ -n "$version" ]; then
+        print_ok "Installed $command_name ($version)"
+    else
+        print_ok "Installed $command_name"
+    fi
+
+    [ "$command_name" = "gpg" ] && GPG_INSTALLED_THIS_RUN=1
+    if [ "$track_gh" = "1" ] && [ "$command_name" = "gh" ]; then
+        GH_INSTALLED_THIS_RUN=1
+    fi
+
+    return 0
+}
+
 ensure_command() {
     local command_name="$1"
     local package_name="$2"
@@ -335,23 +361,7 @@ ensure_command() {
             fi
 
             if spinner_run "Install $package_name via Homebrew" brew install "$package_name"; then
-                if verify_command_present "$command_name"; then
-                    INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                    local version
-                    version="$(command_version "$command_name" || true)"
-                    if [ -n "$version" ]; then
-                        print_ok "Installed $command_name ($version)"
-                    else
-                        print_ok "Installed $command_name"
-                    fi
-
-                    case "$command_name" in
-                        gh) GH_INSTALLED_THIS_RUN=1 ;;
-                        gpg) GPG_INSTALLED_THIS_RUN=1 ;;
-                    esac
-                else
-                    print_error "Install reported success but command still missing: $command_name"
-                fi
+                mark_command_installed "$command_name" "1"
             else
                 print_error "Failed to install $package_name"
                 mark_validated_fail
@@ -360,57 +370,21 @@ ensure_command() {
         linux)
             if apt_available; then
                 if spinner_run "Install $package_name via apt" sudo apt-get install -y "$package_name"; then
-                    if verify_command_present "$command_name"; then
-                        INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                        local version
-                        version="$(command_version "$command_name" || true)"
-                        if [ -n "$version" ]; then
-                            print_ok "Installed $command_name ($version)"
-                        else
-                            print_ok "Installed $command_name"
-                        fi
-                        [ "$command_name" = "gpg" ] && GPG_INSTALLED_THIS_RUN=1
-                    else
-                        print_error "Install reported success but command still missing: $command_name"
-                    fi
+                    mark_command_installed "$command_name"
                 else
                     print_error "Failed to install $package_name"
                     mark_validated_fail
                 fi
             elif dnf_available; then
                 if spinner_run "Install $package_name via dnf" sudo dnf install -y "$package_name"; then
-                    if verify_command_present "$command_name"; then
-                        INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                        local version
-                        version="$(command_version "$command_name" || true)"
-                        if [ -n "$version" ]; then
-                            print_ok "Installed $command_name ($version)"
-                        else
-                            print_ok "Installed $command_name"
-                        fi
-                        [ "$command_name" = "gpg" ] && GPG_INSTALLED_THIS_RUN=1
-                    else
-                        print_error "Install reported success but command still missing: $command_name"
-                    fi
+                    mark_command_installed "$command_name"
                 else
                     print_error "Failed to install $package_name"
                     mark_validated_fail
                 fi
             elif pacman_available; then
                 if spinner_run "Install $package_name via pacman" sudo pacman -S --noconfirm "$package_name"; then
-                    if verify_command_present "$command_name"; then
-                        INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-                        local version
-                        version="$(command_version "$command_name" || true)"
-                        if [ -n "$version" ]; then
-                            print_ok "Installed $command_name ($version)"
-                        else
-                            print_ok "Installed $command_name"
-                        fi
-                        [ "$command_name" = "gpg" ] && GPG_INSTALLED_THIS_RUN=1
-                    else
-                        print_error "Install reported success but command still missing: $command_name"
-                    fi
+                    mark_command_installed "$command_name"
                 else
                     print_error "Failed to install $package_name"
                     mark_validated_fail
@@ -468,23 +442,46 @@ ensure_brew_cask() {
 # Package removal helpers
 #######################################
 
+confirm_neofetch_removed() {
+    local still_installed_fn="$1"
+    local failure_message="$2"
+
+    if ! "$still_installed_fn" "neofetch" && ! command_exists neofetch; then
+        REMOVED_PACKAGES=$((REMOVED_PACKAGES + 1))
+        print_ok "Removed neofetch"
+        mark_validated_ok
+        return 0
+    fi
+
+    print_error "$failure_message"
+    mark_validated_fail
+    return 1
+}
+
+remove_neofetch_via() {
+    local description="$1"
+    local still_installed_fn="$2"
+    local failure_message="$3"
+    shift 3
+
+    if spinner_run "$description" "$@"; then
+        confirm_neofetch_removed "$still_installed_fn" "$failure_message"
+    else
+        print_warn "Could not remove neofetch"
+        mark_validated_fail
+        return 1
+    fi
+}
+
 remove_neofetch_if_installed() {
     case "$PLATFORM" in
         mac)
             if homebrew_available && brew_formula_installed "neofetch"; then
-                if spinner_run "Remove neofetch" brew uninstall neofetch; then
-                    if ! brew_formula_installed "neofetch" && ! command_exists neofetch; then
-                        REMOVED_PACKAGES=$((REMOVED_PACKAGES + 1))
-                        print_ok "Removed neofetch"
-                        mark_validated_ok
-                    else
-                        print_error "neofetch uninstall reported success but neofetch is still present"
-                        mark_validated_fail
-                    fi
-                else
-                    print_warn "Could not remove neofetch"
-                    mark_validated_fail
-                fi
+                remove_neofetch_via \
+                    "Remove neofetch" \
+                    "brew_formula_installed" \
+                    "neofetch uninstall reported success but neofetch is still present" \
+                    brew uninstall neofetch
             else
                 print_skip "neofetch not installed via Homebrew"
                 mark_validated_ok
@@ -492,47 +489,23 @@ remove_neofetch_if_installed() {
             ;;
         linux)
             if apt_available && apt_package_installed "neofetch"; then
-                if spinner_run "Remove neofetch via apt" sudo apt-get remove -y neofetch; then
-                    if ! apt_package_installed "neofetch" && ! command_exists neofetch; then
-                        REMOVED_PACKAGES=$((REMOVED_PACKAGES + 1))
-                        print_ok "Removed neofetch"
-                        mark_validated_ok
-                    else
-                        print_error "neofetch still present after apt removal"
-                        mark_validated_fail
-                    fi
-                else
-                    print_warn "Could not remove neofetch"
-                    mark_validated_fail
-                fi
+                remove_neofetch_via \
+                    "Remove neofetch via apt" \
+                    "apt_package_installed" \
+                    "neofetch still present after apt removal" \
+                    sudo apt-get remove -y neofetch
             elif dnf_available && dnf_package_installed "neofetch"; then
-                if spinner_run "Remove neofetch via dnf" sudo dnf remove -y neofetch; then
-                    if ! dnf_package_installed "neofetch" && ! command_exists neofetch; then
-                        REMOVED_PACKAGES=$((REMOVED_PACKAGES + 1))
-                        print_ok "Removed neofetch"
-                        mark_validated_ok
-                    else
-                        print_error "neofetch still present after dnf removal"
-                        mark_validated_fail
-                    fi
-                else
-                    print_warn "Could not remove neofetch"
-                    mark_validated_fail
-                fi
+                remove_neofetch_via \
+                    "Remove neofetch via dnf" \
+                    "dnf_package_installed" \
+                    "neofetch still present after dnf removal" \
+                    sudo dnf remove -y neofetch
             elif pacman_available && pacman_package_installed "neofetch"; then
-                if spinner_run "Remove neofetch via pacman" sudo pacman -Rns --noconfirm neofetch; then
-                    if ! pacman_package_installed "neofetch" && ! command_exists neofetch; then
-                        REMOVED_PACKAGES=$((REMOVED_PACKAGES + 1))
-                        print_ok "Removed neofetch"
-                        mark_validated_ok
-                    else
-                        print_error "neofetch still present after pacman removal"
-                        mark_validated_fail
-                    fi
-                else
-                    print_warn "Could not remove neofetch"
-                    mark_validated_fail
-                fi
+                remove_neofetch_via \
+                    "Remove neofetch via pacman" \
+                    "pacman_package_installed" \
+                    "neofetch still present after pacman removal" \
+                    sudo pacman -Rns --noconfirm neofetch
             else
                 print_skip "neofetch not installed through supported package manager"
                 mark_validated_ok
