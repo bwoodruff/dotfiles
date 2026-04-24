@@ -4,6 +4,17 @@
 # gpg
 #######################################
 
+app_bundle_short_version() {
+    local app_path="$1"
+    local plist="${app_path}/Contents/Info.plist"
+
+    if [ -f "$plist" ]; then
+        /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null \
+        || defaults read "${app_path}/Contents/Info" CFBundleShortVersionString 2>/dev/null \
+        || true
+    fi
+}
+
 gpg_has_secret_keys() {
     if ! command_exists gpg; then
         return 1
@@ -18,18 +29,8 @@ gpg_has_secret_keys() {
 
 GITHUB_DESKTOP_APP="/Applications/GitHub Desktop.app"
 
-github_desktop_installed() {
-    [ -d "$GITHUB_DESKTOP_APP" ]
-}
-
 github_desktop_version() {
-    local plist="${GITHUB_DESKTOP_APP}/Contents/Info.plist"
-
-    if [ -f "$plist" ]; then
-        /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null \
-        || defaults read "${GITHUB_DESKTOP_APP}/Contents/Info" CFBundleShortVersionString 2>/dev/null \
-        || true
-    fi
+    app_bundle_short_version "$GITHUB_DESKTOP_APP"
 }
 
 github_desktop_download_url() {
@@ -53,7 +54,7 @@ install_github_desktop() {
         return 0
     fi
 
-    if github_desktop_installed; then
+    if dir_exists "$GITHUB_DESKTOP_APP"; then
         print_skip "GitHub Desktop already installed ($(github_desktop_version))"
         mark_validated_ok
         return 0
@@ -109,7 +110,7 @@ install_github_desktop() {
 
     rm -rf "$tmp_dir"
 
-    if github_desktop_installed; then
+    if dir_exists "$GITHUB_DESKTOP_APP"; then
         print_ok "GitHub Desktop installed ($(github_desktop_version))"
         mark_validated_ok
     else
@@ -314,28 +315,14 @@ install_or_update_alacritty() {
 ONEPASSWORD_MAC_APP="/Applications/1Password.app"
 ONEPASSWORD_SAFARI_APP="/Applications/1Password for Safari.app"
 
-onepassword_mac_installed() {
-    [ -d "$ONEPASSWORD_MAC_APP" ]
-}
-
-onepassword_safari_app_present() {
-    [ -d "$ONEPASSWORD_SAFARI_APP" ]
-}
-
 onepassword_mac_version() {
-    local plist="${ONEPASSWORD_MAC_APP}/Contents/Info.plist"
-
-    if [ -f "$plist" ]; then
-        /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null \
-        || defaults read "${ONEPASSWORD_MAC_APP}/Contents/Info" CFBundleShortVersionString 2>/dev/null \
-        || true
-    fi
+    app_bundle_short_version "$ONEPASSWORD_MAC_APP"
 }
 
 install_1password_mac_app() {
     local final_version=""
 
-    if onepassword_mac_installed; then
+    if dir_exists "$ONEPASSWORD_MAC_APP"; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password already installed ($(onepassword_mac_version || true))"
         mark_validated_ok
@@ -586,40 +573,7 @@ install_1password_cli_linux() {
     fi
 
     if apt_available; then
-        local keyring="/usr/share/keyrings/1password-archive-keyring.gpg"
-        local repo_file="/etc/apt/sources.list.d/1password.list"
-
-        if [ ! -f "$keyring" ]; then
-            if spinner_run "Install 1Password APT signing key" bash -lc \
-                "curl -fsSL https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor -o $keyring"; then
-                :
-            else
-                print_error "Could not install 1Password APT signing key"
-                mark_validated_fail
-                return 1
-            fi
-        fi
-
-        if [ ! -f "$repo_file" ]; then
-            if spinner_run "Configure 1Password APT repository" sudo tee "$repo_file" >/dev/null <<'EOF'
-deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main
-EOF
-            then
-                :
-            else
-                print_error "Could not configure 1Password APT repository"
-                mark_validated_fail
-                return 1
-            fi
-        fi
-
-        if spinner_run "apt-get update (1Password repo)" sudo apt-get update; then
-            :
-        else
-            print_warn "Could not refresh APT after adding 1Password repo"
-            mark_validated_fail
-            return 1
-        fi
+        ensure_1password_linux_repo_apt || return 1
 
         if spinner_run "Install 1Password CLI" sudo apt-get install -y 1password-cli; then
             if verify_command_present "op"; then
@@ -663,7 +617,7 @@ check_1password_safari_status() {
         return 0
     fi
 
-    if onepassword_safari_app_present; then
+    if dir_exists "$ONEPASSWORD_SAFARI_APP"; then
         print_skip "1Password for Safari app is present"
         mark_validated_ok
     else

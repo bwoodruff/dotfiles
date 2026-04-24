@@ -395,45 +395,44 @@ progress_advance() {
 #######################################
 
 print_info() {
-    local msg="$1"
-    if [ "$QUIET" != "1" ]; then
-        printf '%s%s%s %s\n' "${C_DIM}" "$TAG_INFO" "${C_RESET}" "$msg"
-    fi
-    append_log "$TAG_INFO $msg"
+    emit_tagged_message "${C_DIM}" "$TAG_INFO" "$1" "0"
 }
 
 print_ok() {
-    local msg="$1"
-    if [ "$QUIET" != "1" ]; then
-        printf '%s%s%s %s\n' "${C_GREEN}" "$TAG_OK" "${C_RESET}" "$msg"
-    fi
-    append_log "$TAG_OK $msg"
+    emit_tagged_message "${C_GREEN}" "$TAG_OK" "$1" "0"
 }
 
 print_skip() {
-    local msg="$1"
-    if [ "$QUIET" != "1" ]; then
-        printf '%s%s%s %s\n' "${C_DIM}" "$TAG_SKIP" "${C_RESET}" "$msg"
-    fi
-    append_log "$TAG_SKIP $msg"
+    emit_tagged_message "${C_DIM}" "$TAG_SKIP" "$1" "0"
 }
 
 print_warn() {
     local msg="$1"
     WARNINGS=$((WARNINGS + 1))
-    if [ "$QUIET" != "1" ]; then
-        printf '%s%s%s %s\n' "${C_YELLOW}" "$TAG_WARN" "${C_RESET}" "$msg" >&2
-    fi
-    append_log "$TAG_WARN $msg"
+    emit_tagged_message "${C_YELLOW}" "$TAG_WARN" "$msg" "1"
 }
 
 print_error() {
     local msg="$1"
     ERRORS=$((ERRORS + 1))
+    emit_tagged_message "${C_RED}" "$TAG_FAIL" "$msg" "1"
+}
+
+emit_tagged_message() {
+    local color="$1"
+    local tag="$2"
+    local msg="$3"
+    local to_stderr="${4:-0}"
+
     if [ "$QUIET" != "1" ]; then
-        printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$msg" >&2
+        if [ "$to_stderr" = "1" ]; then
+            printf '%s%s%s %s\n' "$color" "$tag" "${C_RESET}" "$msg" >&2
+        else
+            printf '%s%s%s %s\n' "$color" "$tag" "${C_RESET}" "$msg"
+        fi
     fi
-    append_log "$TAG_FAIL $msg"
+
+    append_log "$tag $msg"
 }
 
 #######################################
@@ -663,6 +662,10 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+dir_exists() {
+    [ -d "$1" ]
+}
+
 homebrew_available() { command_exists brew; }
 apt_available() { command_exists apt-get; }
 dnf_available() { command_exists dnf; }
@@ -672,14 +675,14 @@ cron_available() { command_exists crontab; }
 ensure_dir() {
     local dir="$1"
 
-    if [ -d "$dir" ]; then
+    if dir_exists "$dir"; then
         print_skip "Directory exists: $dir"
         mark_validated_ok
         return 0
     fi
 
     if spinner_run "Create directory: $dir" mkdir -p "$dir"; then
-        if [ -d "$dir" ]; then
+        if dir_exists "$dir"; then
             CREATED_DIRS=$((CREATED_DIRS + 1))
             print_ok "Directory created: $dir"
             mark_validated_ok
