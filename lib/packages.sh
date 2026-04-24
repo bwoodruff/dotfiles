@@ -8,10 +8,6 @@ brew_formula_installed() {
     brew list --formula "$1" >/dev/null 2>&1
 }
 
-brew_cask_installed() {
-    brew list --cask "$1" >/dev/null 2>&1
-}
-
 apt_package_installed() {
     dpkg -s "$1" >/dev/null 2>&1
 }
@@ -41,23 +37,6 @@ command_version() {
         op) op --version 2>/dev/null | head -n1 | awk '{print $1}' ;;
         *) "$cmd" --version 2>/dev/null | head -n1 ;;
     esac
-}
-
-print_command_status_with_version() {
-    local cmd="$1"
-    local status_prefix="$2"
-    local version=""
-
-    if command_exists "$cmd"; then
-        version="$(command_version "$cmd" || true)"
-        if [ -n "$version" ]; then
-            printf '%s (%s)\n' "$status_prefix" "$version"
-        else
-            printf '%s\n' "$status_prefix"
-        fi
-    else
-        printf '%s\n' "$status_prefix"
-    fi
 }
 
 #######################################
@@ -382,41 +361,6 @@ ensure_command() {
             mark_validated_fail
             ;;
     esac
-}
-
-ensure_brew_cask() {
-    local cask_name="$1"
-    local validation_path="$2"
-    local friendly_name="$3"
-
-    if ! is_macos; then
-        print_skip "Cask install not relevant on non-macOS: $friendly_name"
-        return 0
-    fi
-
-    if [ -e "$validation_path" ]; then
-        SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
-        print_skip "$friendly_name already present"
-        return 0
-    fi
-
-    if ! homebrew_available; then
-        print_warn "Homebrew unavailable; cannot install cask $cask_name"
-        mark_validated_fail
-        return 1
-    fi
-
-    if spinner_run "Install $friendly_name via Homebrew cask" brew install --cask "$cask_name"; then
-        if verify_path_exists "$validation_path"; then
-            INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-            print_ok "Installed $friendly_name"
-        else
-            print_error "Cask install reported success but app not found: $validation_path"
-        fi
-    else
-        print_error "Failed to install cask: $friendly_name"
-        mark_validated_fail
-    fi
 }
 
 #######################################
