@@ -33,6 +33,11 @@ git_version() {
 update_dotfiles_repo() {
     local git_bin="$1"
 
+    if [ -n "${DOTFILES_SELF_UPDATE_PULLED:-}" ]; then
+        print_skip "Dotfiles already updated before this run"
+        return 0
+    fi
+
     if [ -z "$git_bin" ]; then
         print_warn "No git executable available; cannot pull dotfiles"
         mark_validated_fail
@@ -51,6 +56,127 @@ update_dotfiles_repo() {
         command_exists gh && GH_NEEDS_AUTH_HINT=1
         mark_validated_fail
     fi
+}
+
+#######################################
+# Self-update: compare to origin, pull, re-exec
+#######################################
+
+dotfiles_normalize_github_path() {
+    local u="${1?}"
+    u="${u#git@github.com:}"
+    u="${u#https://github.com/}"
+    u="${u#http://github.com/}"
+    u="${u%.git}"
+    printf '%s\n' "$u"
+}
+
+# Returns 0 if we should trust origin (URL matches, or any-origin is allowed).
+dotfiles_self_update_trusts_origin() {
+    local git_bin="${1?}" repo_root="${2?}"
+    local url norm
+
+    if [ "$DOTFILES_SELF_UPDATE_ANY_ORIGIN" = "1" ]; then
+        return 0
+    fi
+
+    if ! url="$("$git_bin" -C "$repo_root" remote get-url origin 2>/dev/null)"; then
+        return 1
+    fi
+    if [ -z "$url" ]; then
+        return 1
+    fi
+
+    norm="$(dotfiles_normalize_github_path "$url")"
+    [ "$norm" = "$DOTFILES_UPSTREAM_GITHUB" ]
+}
+
+# If install.sh is behind origin/HEAD, fast-forward, then re-exec with the same args.
+# Safe to run before git + lock: re-exec replaces the process, so no second lock; child
+# sets DOTFILES_INSTALL_REEXEC=1 to avoid an update loop. Updates only the in-repo script; a
+# git pull in task_git is redundant if DOTFILES_SELF_UPDATE_PULLED is set.
+maybe_reexec_fresh_install_script() {
+    local script_dir="${1?}"
+    shift
+
+    if [ "$DOTFILES_AUTO_UPDATE" != "1" ] || [ "$DRY_RUN" = "1" ]; then
+        return 0
+    fi
+    if [ "${DOTFILES_INSTALL_REEXEC:-0}" = "1" ]; then
+        return 0
+    fi
+
+    local git_bin repo_root
+    git_bin="$(get_preferred_git_path)"
+    if [ -z "$git_bin" ] || [ ! -x "$git_bin" ]; then
+        return 0
+    fi
+
+    repo_root="$("$git_bin" -C "$script_dir" rev-parse --show-toplevel 2>/dev/null)" || return 0
+    if [ ! -d "$repo_root/.git" ]; then
+        return 0
+    fi
+
+    local df_resolved
+    df_resolved="$(cd "$DOTFILES_DIR" 2>/dev/null && pwd 2>/dev/null)" || df_resolved=""
+    if [ -n "$df_resolved" ] && [ "$df_resolved" != "$repo_root" ]; then
+        print_info "This script's repo is $repo_root, but DOTFILES_DIR is $DOTFILES_DIR; skipping self-update to avoid the wrong tree"
+        return 0
+    fi
+
+    if ! dotfiles_self_update_trusts_origin "$git_bin" "$repo_root"; then
+        if [ "$QUIET" = "1" ]; then
+            return 0
+        fi
+        print_info "origin does not look like ${DOTFILES_UPSTREAM_GITHUB}; skipping self-update (set DOTFILES_SELF_UPDATE_ANY_ORIGIN=1 to allow any origin)"
+        return 0
+    fi
+
+    if [ -n "$("$git_bin" -C "$repo_root" status --porcelain 2>/dev/null)" ]; then
+        print_warn "Dotfiles repo has uncommitted changes; skipping self-update. Commit or stash, or run with DOTFILES_AUTO_UPDATE=0"
+        return 0
+    fi
+
+    if ! "$git_bin" -C "$repo_root" fetch -q --prune origin 2>/dev/null; then
+        if [ "$QUIET" = "1" ]; then
+            return 0
+        fi
+        print_info "Could not contact git origin; continuing with the current install script on disk"
+        return 0
+    fi
+
+    local branch behind ahead
+    branch="$("$git_bin" -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
+    if [ "$branch" = "HEAD" ] || [ -z "$branch" ]; then
+        return 0
+    fi
+    if ! "$git_bin" -C "$repo_root" rev-parse -q "origin/${branch}" >/dev/null 2>&1; then
+        if [ "$QUIET" = "1" ]; then
+            return 0
+        fi
+        print_info "No origin/${branch} yet; skipping self-update"
+        return 0
+    fi
+
+    behind="$("$git_bin" -C "$repo_root" rev-list --count HEAD.."origin/${branch}" 2>/dev/null || echo 0)"
+    ahead="$("$git_bin" -C "$repo_root" rev-list --count "origin/${branch}"..HEAD 2>/dev/null || echo 0)"
+    if [ "$behind" = "0" ] || [ -z "$behind" ]; then
+        return 0
+    fi
+    if [ "${ahead:-0}" != "0" ]; then
+        print_warn "Remote has newer commits, but you have local commits; not auto-updating. Rebase, merge, or push, then re-run (or set DOTFILES_AUTO_UPDATE=0)"
+        return 0
+    fi
+
+    if ! spinner_run "Pull latest dotfiles (self-update)" "$git_bin" -C "$repo_root" pull --ff-only; then
+        print_warn "Could not fast-forward the dotfiles repo; continuing with the current install script on disk"
+        return 0
+    fi
+
+    print_info "Restarting the installer so it runs the code you just pulled (one re-exec only)"
+    export DOTFILES_INSTALL_REEXEC=1
+    export DOTFILES_SELF_UPDATE_PULLED=1
+    exec /usr/bin/env bash "${script_dir}/install.sh" "$@"
 }
 
 configure_git() {

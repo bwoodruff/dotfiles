@@ -41,6 +41,7 @@ Options:
   --quiet                    Reduce terminal output
   --scheduled                Non-interactive maintenance mode; implies --pull-dotfiles and skips runtime reloads/prompts
   --pull-dotfiles            Run git pull --ff-only in ~/dotfiles before applying changes
+  --no-auto-update           Do not fetch origin / pull / re-exec when behind (see DOTFILES_AUTO_UPDATE)
   --strict-optional-configs  Treat missing optional config sources as warnings
   --no-schedule              Do not create/check weekly scheduled run
   --no-upgrade               Skip package-manager update/upgrade step
@@ -55,6 +56,7 @@ while [ $# -gt 0 ]; do
         --quiet) QUIET=1 ;;
         --scheduled) SCHEDULED=1; PULL_DOTFILES=1; QUIET=1 ;;
         --pull-dotfiles) PULL_DOTFILES=1 ;;
+        --no-auto-update) DOTFILES_AUTO_UPDATE=0 ;;
         --strict-optional-configs) STRICT_OPTIONAL_CONFIGS=1 ;;
         --no-schedule) SETUP_SCHEDULE=0 ;;
         --no-upgrade) UPGRADE_PACKAGES=0 ;;
@@ -89,7 +91,10 @@ task_environment() {
     print_info "Dotfiles: $DOTFILES_DIR"
     print_info "Config home: $CONFIG_HOME"
     print_info "Log file: $LOG_FILE"
-    print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES"
+    if [ "${DOTFILES_INSTALL_REEXEC:-0}" = "1" ]; then
+        print_info "Install script: continued after a self-update (fetched the latest from origin)"
+    fi
+    print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES DOTFILES_AUTO_UPDATE=$DOTFILES_AUTO_UPDATE"
 }
 
 task_directory_setup() {
@@ -227,6 +232,8 @@ main() {
     init_sections
     init_logging
     prepare_interactive_screen
+    # Compare to origin, pull with --ff-only, and re-exec once so the rest of the run uses fresh sources.
+    maybe_reexec_fresh_install_script "$SCRIPT_DIR" "$@"
     progress_setup
     acquire_lock
 
