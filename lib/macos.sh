@@ -208,92 +208,12 @@ configure_hostname_once() {
 }
 
 #######################################
-# Interactive core macOS preferences
-#######################################
-
-current_macos_appearance_is_dark() {
-    [ "$(macos_read standard -g AppleInterfaceStyle)" = "Dark" ]
-}
-
-current_macos_accent_is_purple() {
-    [ "$(macos_read standard -g AppleAccentColor)" = "5" ]
-}
-
-set_macos_appearance_dark() {
-    if current_macos_appearance_is_dark; then
-        print_skip "macOS appearance already Dark"
-        mark_validated_ok
-        return 0
-    fi
-
-    if spinner_run "Set macOS appearance to Dark" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true'; then
-        if current_macos_appearance_is_dark; then
-            mark_validated_ok
-            return 0
-        fi
-
-        print_error "macOS appearance change did not verify"
-        mark_validated_fail
-        return 1
-    fi
-
-    mark_validated_fail
-    return 1
-}
-
-set_macos_accent_purple() {
-    if current_macos_accent_is_purple; then
-        print_skip "macOS accent color already Purple"
-        mark_validated_ok
-        return 0
-    fi
-
-    if spinner_run "Set macOS accent color to Purple" defaults write -g AppleAccentColor -int 5; then
-        if current_macos_accent_is_purple; then
-            mark_validated_ok
-            return 0
-        fi
-
-        print_error "Accent color change did not verify"
-        mark_validated_fail
-        return 1
-    fi
-
-    mark_validated_fail
-    return 1
-}
-
-configure_interactive_core_macos_preferences() {
-    if current_macos_appearance_is_dark; then
-        print_skip "macOS appearance already Dark"
-        mark_validated_ok
-    else
-        if prompt_yes_no_default_yes "Set macOS appearance to Dark?"; then
-            set_macos_appearance_dark
-        else
-            print_skip "macOS appearance unchanged"
-            mark_validated_ok
-        fi
-    fi
-
-    if current_macos_accent_is_purple; then
-        print_skip "macOS accent color already Purple"
-        mark_validated_ok
-    else
-        if prompt_yes_no_default_yes "Set macOS accent color to Purple?"; then
-            set_macos_accent_purple
-        else
-            print_skip "macOS accent color unchanged"
-            mark_validated_ok
-        fi
-    fi
-}
-
-#######################################
 # Declarative defaults
 #######################################
 
 MACOS_DEFAULTS_COMMON=(
+    "Set Dark appearance|standard|NSGlobalDomain|AppleInterfaceStyle|string|Dark|"
+    "Set purple accent color|standard|NSGlobalDomain|AppleAccentColor|int|5|"
     "Always show scrollbars|standard|NSGlobalDomain|AppleShowScrollBars|string|Always|"
     "Expand save panel|standard|NSGlobalDomain|NSNavPanelExpandedStateForSaveMode|bool|true|"
     "Expand save panel (v2)|standard|NSGlobalDomain|NSNavPanelExpandedStateForSaveMode2|bool|true|"
@@ -380,7 +300,6 @@ configure_global_macos_preferences() {
     osascript -e 'tell application "System Settings" to quit' 2>/dev/null || true
     osascript -e 'tell application "System Preferences" to quit' 2>/dev/null || true
 
-    configure_interactive_core_macos_preferences
     configure_hostname_once
     apply_records "${MACOS_DEFAULTS_COMMON[@]}"
 }
