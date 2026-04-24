@@ -53,6 +53,24 @@ homebrew_bin_path() {
     fi
 }
 
+# Install.sh is often run from a non-login shell (e.g. Terminal) where PATH may not
+# include /opt/homebrew/bin yet. Sourcing Homebrew from known locations before any
+# `command -v brew` check prevents re-running the official installer.
+homebrew_ensure_path() {
+    local brew_bin=""
+    brew_bin="$(homebrew_bin_path)"
+    if [ -n "$brew_bin" ] && [ -x "$brew_bin" ]; then
+        # shellcheck disable=SC1090
+        eval "$("$brew_bin" shellenv)"
+    fi
+}
+
+# Overrides lib/core.sh: PATH may omit brew until shellenv runs (see homebrew_ensure_path).
+homebrew_available() {
+    homebrew_ensure_path
+    command_exists brew
+}
+
 homebrew_shellenv_rcfile() {
     case "${SHELL:-}" in
         */zsh) printf '%s/.zprofile\n' "$HOME" ;;

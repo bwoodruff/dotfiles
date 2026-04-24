@@ -206,6 +206,9 @@ configure_hostname_once() {
 #######################################
 
 MACOS_DEFAULTS_COMMON=(
+    # If Appearance is "Auto" (time-based), AppleInterfaceStyle in plists can disagree with
+    # what the UI shows; always disable auto first, then set Dark. See e.g. AppleInterfaceStyleSwitchesAutomatically.
+    "Disable auto Light/Dark appearance|standard|NSGlobalDomain|AppleInterfaceStyleSwitchesAutomatically|bool|false|"
     "Set Dark appearance|standard|NSGlobalDomain|AppleInterfaceStyle|string|Dark|"
     "Set purple accent color|standard|NSGlobalDomain|AppleAccentColor|int|5|"
     "Always show scrollbars|standard|NSGlobalDomain|AppleShowScrollBars|string|Always|"
