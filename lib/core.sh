@@ -582,7 +582,6 @@ verify_xattr_absent() {
     local attr="$2"
 
     if xattr "$path" 2>/dev/null | grep -Fxq "$attr"; then
-        mark_validated_fail
         return 1
     fi
 

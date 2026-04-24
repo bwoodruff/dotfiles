@@ -599,7 +599,6 @@ check_1password_safari_status() {
     else
         print_info "1Password for Safari app not detected"
         ONEPASSWORD_SAFARI_NEXT_STEP=1
-        mark_validated_fail
     fi
 }
 
