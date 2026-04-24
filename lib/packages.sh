@@ -98,7 +98,6 @@ ensure_homebrew_shellenv_configured() {
     eval "$("$brew_bin" shellenv)"
 
     if command_exists brew; then
-        mark_validated_ok
     else
         print_error "Failed to activate Homebrew in current shell"
         mark_validated_fail
@@ -112,13 +111,11 @@ ensure_homebrew_shellenv_configured() {
 
     if [ -f "$rcfile" ] && grep -Fqx "$shellenv_line" "$rcfile"; then
         print_skip "Homebrew shellenv already configured in $rcfile"
-        mark_validated_ok
         return 0
     fi
 
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would append Homebrew shellenv to $rcfile"
-        mark_validated_ok
         return 0
     fi
 
@@ -129,7 +126,6 @@ ensure_homebrew_shellenv_configured() {
 
     if grep -Fqx "$shellenv_line" "$rcfile"; then
         print_ok "Configured Homebrew shellenv in $rcfile"
-        mark_validated_ok
     else
         print_error "Failed to persist Homebrew shellenv in $rcfile"
         mark_validated_fail
@@ -140,13 +136,11 @@ ensure_homebrew_shellenv_configured() {
 install_homebrew_if_needed() {
     if ! is_macos; then
         print_skip "Not macOS; skipping Homebrew setup"
-        mark_validated_ok
         return 0
     fi
 
     if homebrew_available; then
         print_skip "Homebrew already installed ($(command -v brew))"
-        mark_validated_ok
         else
         if ! ensure_sudo_cached; then
             print_error "Unable to authenticate for Homebrew installation"
@@ -158,7 +152,6 @@ install_homebrew_if_needed() {
             if ensure_homebrew_shellenv_configured && homebrew_available; then
                 INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
                 print_ok "Homebrew installed ($(command -v brew))"
-                mark_validated_ok
             else
                 print_error "Homebrew installer returned success but brew is still unavailable"
                 mark_validated_fail
@@ -195,7 +188,6 @@ install_homebrew_if_needed() {
 upgrade_packages() {
     if [ "$UPGRADE_PACKAGES" != "1" ]; then
         print_skip "Package upgrades disabled"
-        mark_validated_ok
         return 0
     fi
 
@@ -203,7 +195,6 @@ upgrade_packages() {
         mac)
             if homebrew_available; then
                 if spinner_run "brew update" brew update; then
-                    mark_validated_ok
                 else
                     print_warn "brew update failed"
                     mark_validated_fail
@@ -219,7 +210,6 @@ upgrade_packages() {
                         if [ "${remaining:-0}" -lt "$outdated_count" ]; then
                             UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + outdated_count - remaining))
                             print_ok "Homebrew upgrade complete (${outdated_count} candidates, ${remaining} remaining)"
-                            mark_validated_ok
                         else
                             print_error "brew upgrade ran but outdated package count did not decrease"
                             mark_validated_fail
@@ -230,7 +220,6 @@ upgrade_packages() {
                     fi
                 else
                     print_skip "No Homebrew packages need upgrading"
-                    mark_validated_ok
                 fi
             else
                 print_warn "Homebrew unavailable; skipping upgrades"
@@ -241,7 +230,6 @@ upgrade_packages() {
             if apt_available; then
                 if spinner_run "apt-get update" sudo apt-get update; then
                     print_ok "apt-get update complete"
-                    mark_validated_ok
                 else
                     print_warn "apt-get update failed"
                     mark_validated_fail
@@ -257,7 +245,6 @@ upgrade_packages() {
                         if [ "${remaining:-0}" -lt "$upgrade_count" ]; then
                             UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + upgrade_count - remaining))
                             print_ok "apt-get upgrade complete (${upgrade_count} candidates, ${remaining} remaining)"
-                            mark_validated_ok
                         else
                             print_error "apt-get upgrade ran but upgradable package count did not decrease"
                             mark_validated_fail
@@ -268,12 +255,10 @@ upgrade_packages() {
                     fi
                 else
                     print_skip "No apt packages need upgrading"
-                    mark_validated_ok
                 fi
             elif dnf_available; then
                 if spinner_run "dnf upgrade" sudo dnf upgrade -y; then
                     print_ok "dnf upgrade complete"
-                    mark_validated_ok
                 else
                     print_warn "dnf upgrade failed"
                     mark_validated_fail
@@ -281,7 +266,6 @@ upgrade_packages() {
             elif pacman_available; then
                 if spinner_run "pacman -Syu" sudo pacman -Syu --noconfirm; then
                     print_ok "pacman -Syu complete"
-                    mark_validated_ok
                 else
                     print_warn "pacman upgrade failed"
                     mark_validated_fail
@@ -293,7 +277,6 @@ upgrade_packages() {
             ;;
         *)
             print_skip "Package upgrade not implemented for platform: $PLATFORM"
-            mark_validated_ok
             ;;
     esac
 }
@@ -341,7 +324,6 @@ ensure_command() {
         else
             print_skip "Command available: $command_name ($(command -v "$command_name"))"
         fi
-        mark_validated_ok
         return 0
     fi
 
@@ -356,7 +338,6 @@ ensure_command() {
             if [ "$FORCE_BREW" = "1" ] && brew_formula_installed "$package_name"; then
                 SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
                 print_skip "Homebrew formula already installed: $package_name"
-                mark_validated_ok
                 return 0
             fi
 
@@ -408,14 +389,12 @@ ensure_brew_cask() {
 
     if ! is_macos; then
         print_skip "Cask install not relevant on non-macOS: $friendly_name"
-        mark_validated_ok
         return 0
     fi
 
     if [ -e "$validation_path" ]; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "$friendly_name already present"
-        mark_validated_ok
         return 0
     fi
 
@@ -449,7 +428,6 @@ confirm_neofetch_removed() {
     if ! "$still_installed_fn" "neofetch" && ! command_exists neofetch; then
         REMOVED_PACKAGES=$((REMOVED_PACKAGES + 1))
         print_ok "Removed neofetch"
-        mark_validated_ok
         return 0
     fi
 
@@ -484,7 +462,6 @@ remove_neofetch_if_installed() {
                     brew uninstall neofetch
             else
                 print_skip "neofetch not installed via Homebrew"
-                mark_validated_ok
             fi
             ;;
         linux)
@@ -508,12 +485,10 @@ remove_neofetch_if_installed() {
                     sudo pacman -Rns --noconfirm neofetch
             else
                 print_skip "neofetch not installed through supported package manager"
-                mark_validated_ok
             fi
             ;;
         *)
             print_skip "neofetch removal not implemented for platform: $PLATFORM"
-            mark_validated_ok
             ;;
     esac
 }

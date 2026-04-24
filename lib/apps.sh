@@ -50,13 +50,11 @@ github_desktop_download_url() {
 install_github_desktop() {
     if ! is_macos; then
         print_skip "GitHub Desktop not supported on this platform"
-        mark_validated_ok
         return 0
     fi
 
     if dir_exists "$GITHUB_DESKTOP_APP"; then
         print_skip "GitHub Desktop already installed ($(github_desktop_version))"
-        mark_validated_ok
         return 0
     fi
 
@@ -112,7 +110,6 @@ install_github_desktop() {
 
     if dir_exists "$GITHUB_DESKTOP_APP"; then
         print_ok "GitHub Desktop installed ($(github_desktop_version))"
-        mark_validated_ok
     else
         print_error "GitHub Desktop install did not verify"
         mark_validated_fail
@@ -152,13 +149,11 @@ install_alacritty_macos() {
     if [ -n "$installed_version" ]; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "Alacritty already installed (${installed_version})"
-        mark_validated_ok
         return 0
     fi
 
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would check latest Alacritty GitHub release and install if missing"
-        mark_validated_ok
         return 0
     fi
 
@@ -247,7 +242,6 @@ install_alacritty_linux() {
     if [ -n "$installed_version" ]; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "Alacritty already installed (${installed_version})"
-        mark_validated_ok
         return 0
     fi
 
@@ -325,7 +319,6 @@ install_1password_mac_app() {
     if dir_exists "$ONEPASSWORD_MAC_APP"; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password already installed ($(onepassword_mac_version || true))"
-        mark_validated_ok
         return 0
     fi
 
@@ -391,7 +384,6 @@ ensure_1password_linux_repo_apt() {
         fi
     else
         print_skip "1Password APT signing key already present"
-        mark_validated_ok
     fi
 
     if [ ! -f "$repo_file" ]; then
@@ -407,12 +399,10 @@ EOF
         fi
     else
         print_skip "1Password APT repository already configured"
-        mark_validated_ok
     fi
 
     if spinner_run "apt-get update (1Password repo)" sudo apt-get update; then
         print_ok "1Password APT repository refreshed"
-        mark_validated_ok
     else
         print_warn "Could not refresh APT after adding 1Password repo"
         mark_validated_fail
@@ -452,12 +442,10 @@ EOF
         fi
     else
         print_skip "1Password RPM repository already configured"
-        mark_validated_ok
     fi
 
     if spinner_run "dnf makecache (1Password repo)" sudo dnf makecache; then
         print_ok "1Password RPM repository refreshed"
-        mark_validated_ok
     else
         print_warn "Could not refresh DNF metadata after adding 1Password repo"
         mark_validated_fail
@@ -471,7 +459,6 @@ install_1password_linux_app() {
     if onepassword_linux_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password already installed ($(onepassword_linux_version || true))"
-        mark_validated_ok
         return 0
     fi
 
@@ -507,7 +494,6 @@ mark_1password_linux_installed() {
         INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
         ONEPASSWORD_INSTALLED_THIS_RUN=1
         print_ok "Installed 1Password for Linux ($(onepassword_linux_version || true))"
-        mark_validated_ok
     else
         print_error "1Password install reported success but command is still missing"
         mark_validated_fail
@@ -540,7 +526,6 @@ install_1password_cli_macos() {
     if onepassword_cli_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password CLI already installed ($(onepassword_cli_version || true))"
-        mark_validated_ok
         return 0
     fi
 
@@ -573,7 +558,6 @@ install_1password_cli_linux() {
     if onepassword_cli_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password CLI already installed ($(onepassword_cli_version || true))"
-        mark_validated_ok
         return 0
     fi
 
@@ -612,7 +596,6 @@ check_1password_safari_status() {
 
     if dir_exists "$ONEPASSWORD_SAFARI_APP"; then
         print_skip "1Password for Safari app is present"
-        mark_validated_ok
     else
         print_info "1Password for Safari app not detected"
         ONEPASSWORD_SAFARI_NEXT_STEP=1
@@ -633,7 +616,6 @@ install_1password_stack() {
             ;;
         *)
             print_skip "1Password automation not implemented for platform: $PLATFORM"
-            mark_validated_ok
             ;;
     esac
 }
@@ -645,13 +627,11 @@ install_1password_stack() {
 run_fastfetch() {
     if ! command_exists fastfetch; then
         print_skip "fastfetch not available"
-        mark_validated_ok
         return 0
     fi
 
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would run fastfetch"
-        mark_validated_ok
         return 0
     fi
 
@@ -664,7 +644,6 @@ run_fastfetch() {
     if [ "$QUIET" = "1" ]; then
         if fastfetch >>"$LOG_FILE" 2>&1; then
             print_ok "fastfetch complete"
-            mark_validated_ok
         else
             print_warn "fastfetch failed"
             mark_validated_fail
@@ -676,13 +655,10 @@ run_fastfetch() {
     ff_tmp="$(mktemp)"
 
     if fastfetch --pipe false 2>&1 | tee "$ff_tmp"; then
-        cat "$ff_tmp" >>"$LOG_FILE"
         rm -f "$ff_tmp"
         print_rule '─'
         print_ok "fastfetch complete"
-        mark_validated_ok
     else
-        cat "$ff_tmp" >>"$LOG_FILE"
         rm -f "$ff_tmp"
         print_rule '─'
         print_warn "fastfetch failed"

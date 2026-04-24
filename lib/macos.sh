@@ -73,7 +73,6 @@ macos_apply() {
 
     if [ "$current" = "$desired" ]; then
         print_skip "$description already set"
-        mark_validated_ok
         return 0
     fi
 
@@ -82,7 +81,6 @@ macos_apply() {
         verify="$(macos_normalize "$type" "$verify")"
 
         if [ "$verify" = "$desired" ]; then
-            mark_validated_ok
             [ "$restart_target" = "finder" ] && FINDER_PREFS_CHANGED=1
             return 0
         fi
@@ -119,12 +117,10 @@ restart_finder_if_needed() {
 
     if [ "$SCHEDULED" = "1" ]; then
         print_skip "Scheduled mode: skipping Finder restart"
-        mark_validated_ok
         return 0
     fi
 
     if spinner_run "Restart Finder" killall Finder; then
-        mark_validated_ok
     else
         mark_validated_fail
     fi
@@ -194,7 +190,6 @@ configure_hostname_once() {
                 : > "$cookie"
             fi
 
-            mark_validated_ok
             return 0
         fi
 
@@ -273,11 +268,9 @@ safari_developer_features_enabled() {
 
 if safari_developer_features_enabled; then
     print_skip "Safari developer features already enabled"
-    mark_validated_ok
 else
     SAFARI_DEVTOOLS_NEXT_STEP=1
     print_info "Safari developer features are not enabled"
-    mark_validated_ok
 fi
 
 #######################################
@@ -287,13 +280,11 @@ fi
 configure_global_macos_preferences() {
     if ! is_macos; then
         print_skip "macOS preferences not relevant"
-        mark_validated_ok
         return 0
     fi
 
     if ! is_interactive; then
         print_skip "Skipping macOS preferences in non-interactive mode"
-        mark_validated_ok
         return 0
     fi
 
@@ -307,13 +298,11 @@ configure_global_macos_preferences() {
 configure_finder_preferences() {
     if ! is_macos; then
         print_skip "Finder preferences not relevant on non-macOS"
-        mark_validated_ok
         return 0
     fi
 
     if ! is_interactive; then
         print_skip "Skipping Finder preferences in non-interactive mode"
-        mark_validated_ok
         return 0
     fi
 

@@ -41,13 +41,11 @@ update_dotfiles_repo() {
 
     if [ ! -d "$DOTFILES_DIR/.git" ]; then
         print_skip "Dotfiles repo not found at $DOTFILES_DIR"
-        mark_validated_ok
         return 0
     fi
 
     if spinner_run "Pull dotfiles repo" "$git_bin" -C "$DOTFILES_DIR" pull --ff-only; then
         print_ok "Dotfiles repo pulled"
-        mark_validated_ok
     else
         print_warn "Dotfiles pull failed"
         command_exists gh && GH_NEEDS_AUTH_HINT=1
@@ -61,7 +59,6 @@ configure_git() {
 
     if [ -z "$git_bin" ] || ! command_exists vim; then
         print_skip "Skipping git editor config"
-        mark_validated_ok
         return 0
     fi
 
@@ -69,7 +66,6 @@ configure_git() {
 
     if [ "$current_editor" = "vim" ]; then
         print_skip "Git editor already set to vim"
-        mark_validated_ok
         return 0
     fi
 
@@ -77,7 +73,6 @@ configure_git() {
         current_editor="$("$git_bin" config --global core.editor 2>/dev/null || true)"
         if [ "$current_editor" = "vim" ]; then
             print_ok "Git editor set to vim"
-            mark_validated_ok
         else
             print_error "Git editor change did not verify"
             mark_validated_fail
@@ -101,7 +96,6 @@ clone_repo_if_missing() {
     if [ -d "$target_dir" ]; then
         SKIPPED_REPOS=$((SKIPPED_REPOS + 1))
         print_skip "Repo present: $target_dir"
-        mark_validated_ok
         return 0
     fi
 
@@ -112,7 +106,6 @@ clone_repo_if_missing() {
             if [ -d "$target_dir/.git" ] || [ -d "$target_dir" ]; then
                 CLONED_REPOS=$((CLONED_REPOS + 1))
                 print_ok "Cloned repo: $target_dir"
-                mark_validated_ok
             else
                 print_error "Clone reported success but repo missing: $target_dir"
                 mark_validated_fail
@@ -126,7 +119,6 @@ clone_repo_if_missing() {
             if [ -d "$target_dir/.git" ] || [ -d "$target_dir" ]; then
                 CLONED_REPOS=$((CLONED_REPOS + 1))
                 print_ok "Cloned repo: $target_dir"
-                mark_validated_ok
             else
                 print_error "Clone reported success but repo missing: $target_dir"
                 mark_validated_fail
@@ -151,7 +143,6 @@ link_file() {
         if [ "$optional" = "1" ] && [ "$STRICT_OPTIONAL_CONFIGS" != "1" ]; then
             SKIPPED_LINKS=$((SKIPPED_LINKS + 1))
             print_skip "Optional source missing: $source"
-            mark_validated_ok
             return 0
         fi
         SKIPPED_LINKS=$((SKIPPED_LINKS + 1))
@@ -168,7 +159,6 @@ link_file() {
         if [ "$current_link" = "$source" ]; then
             SKIPPED_LINKS=$((SKIPPED_LINKS + 1))
             print_skip "Symlink already correct: $target"
-            mark_validated_ok
             return 0
         fi
     fi
@@ -182,7 +172,6 @@ link_file() {
             if [ "$target" = "${CONFIG_HOME}/tmux/tmux.conf" ]; then
                 TMUX_CONFIG_CHANGED=1
             fi
-            mark_validated_ok
         else
             print_error "Symlink did not verify: $target"
             mark_validated_fail
@@ -202,7 +191,6 @@ install_vim_plug() {
 
     if [ -f "$plug_path" ]; then
         print_skip "vim-plug already installed"
-        mark_validated_ok
         return 0
     fi
 
@@ -212,7 +200,6 @@ install_vim_plug() {
         https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim; then
         if verify_path_exists "$plug_path"; then
             print_ok "vim-plug installed"
-            mark_validated_ok
         else
             print_error "vim-plug install reported success but file missing"
             mark_validated_fail
@@ -228,25 +215,21 @@ install_vim_plugins() {
 
     if ! command_exists vim; then
         print_skip "vim not available"
-        mark_validated_ok
         return 0
     fi
 
     if [ ! -f "${HOME}/.vimrc" ]; then
         print_skip ".vimrc not found"
-        mark_validated_ok
         return 0
     fi
 
     if [ ! -f "${HOME}/.vim/autoload/plug.vim" ]; then
         print_skip "vim-plug not found"
-        mark_validated_ok
         return 0
     fi
 
     if [ -d "${HOME}/.vim/plugged" ]; then
         print_skip "Vim plugins already installed"
-        mark_validated_ok
         return 0
     fi
 
@@ -255,14 +238,12 @@ install_vim_plugins() {
 
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would run vim -N -V1${vim_log} -E -s -u ${HOME}/.vimrc '+PlugInstall --sync' '+qa!'"
-        mark_validated_ok
         return 0
     fi
 
     if vim -N -V1"${vim_log}" -E -s -u "${HOME}/.vimrc" "+PlugInstall --sync" "+qa!" >>"$LOG_FILE" 2>&1; then
         if [ -d "${HOME}/.vim/plugged" ]; then
             print_ok "Vim plugins installed"
-            mark_validated_ok
         else
             print_error "Vim exited successfully but ~/.vim/plugged was not found"
             mark_validated_fail
@@ -283,7 +264,6 @@ install_fonts() {
 
     if [ ! -d "$fonts_source_dir" ]; then
         print_skip "No fonts directory at $fonts_source_dir"
-        mark_validated_ok
         return 0
     fi
 
@@ -308,13 +288,11 @@ install_fonts() {
         if [ -e "${fonts_dest_dir}/${filename}" ]; then
             SKIPPED_FONTS=$((SKIPPED_FONTS + 1))
             print_skip "Font present: ${filename}"
-            mark_validated_ok
         else
             if spinner_run "Install font ${filename}" cp "$font_file" "${fonts_dest_dir}/${filename}"; then
                 if verify_path_exists "${fonts_dest_dir}/${filename}"; then
                     INSTALLED_FONTS=$((INSTALLED_FONTS + 1))
                     print_ok "Installed font: ${filename}"
-                    mark_validated_ok
                 else
                     print_error "Font install reported success but file missing: ${filename}"
                     mark_validated_fail
@@ -328,13 +306,11 @@ install_fonts() {
 
     if [ "$found_any" = "0" ]; then
         print_skip "No font files found under $fonts_source_dir"
-        mark_validated_ok
     fi
 
     if is_linux && [ "$INSTALLED_FONTS" -gt 0 ] && command_exists fc-cache; then
         if spinner_run "Refresh font cache" fc-cache -f "$fonts_dest_dir"; then
             print_ok "Font cache refreshed"
-            mark_validated_ok
         else
             print_warn "Could not refresh font cache"
             mark_validated_fail
@@ -351,19 +327,16 @@ install_tmux_plugins() {
 
     if [ ! -x "$installer" ]; then
         print_skip "TPM installer not found"
-        mark_validated_ok
         return 0
     fi
 
     if [ "${TMUX_CONFIG_CHANGED:-0}" != "1" ]; then
         print_skip "tmux plugins unchanged; install not needed"
-        mark_validated_ok
         return 0
     fi
 
     if spinner_run "Install tmux plugins" "$installer"; then
         print_ok "tmux plugins installed"
-        mark_validated_ok
     else
         print_warn "tmux plugin install failed"
         mark_validated_fail
@@ -375,37 +348,31 @@ reload_tmux_config_if_running() {
 
     if [ "$SCHEDULED" = "1" ]; then
         print_skip "Scheduled mode: skipping tmux reload"
-        mark_validated_ok
         return 0
     fi
 
     if [ "${TMUX_CONFIG_CHANGED:-0}" != "1" ]; then
         print_skip "tmux config unchanged; reload not needed"
-        mark_validated_ok
         return 0
     fi
 
     if ! command_exists tmux; then
         print_skip "tmux not available"
-        mark_validated_ok
         return 0
     fi
 
     if ! tmux ls >/dev/null 2>&1; then
         print_skip "No tmux server running"
-        mark_validated_ok
         return 0
     fi
 
     if [ ! -f "$tmux_conf" ]; then
         print_skip "tmux config not found"
-        mark_validated_ok
         return 0
     fi
 
     if spinner_run "Reload tmux config" tmux source-file "$tmux_conf"; then
         print_ok "tmux config reloaded"
-        mark_validated_ok
     else
         print_warn "Could not reload tmux config"
         mark_validated_fail

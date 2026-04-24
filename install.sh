@@ -117,7 +117,6 @@ task_git() {
         else
             print_ok "Using CLI git binary: $GIT_BIN"
         fi
-        mark_validated_ok
     else
         print_warn "No git executable found"
         mark_validated_fail
@@ -163,13 +162,16 @@ task_gpg() {
         else
             print_skip "gpg already installed"
         fi
-        mark_validated_ok
     else
         ensure_command "gpg" "gnupg"
     fi
 }
 
 task_summary() {
+    local changes_applied=0
+    changes_applied=$((CREATED_DIRS + BACKED_UP_PATHS + LINKED_FILES + INSTALLED_PACKAGES + UPGRADED_PACKAGES + REMOVED_PACKAGES + CLONED_REPOS + INSTALLED_FONTS))
+
+    print_info "Changes applied      : $changes_applied"
     print_info "Directories created  : $CREATED_DIRS"
     print_info "Backups made         : $BACKED_UP_PATHS"
     print_info "Symlinks created     : $LINKED_FILES"
@@ -182,8 +184,7 @@ task_summary() {
     print_info "Repos skipped        : $SKIPPED_REPOS"
     print_info "Fonts installed      : $INSTALLED_FONTS"
     print_info "Fonts skipped        : $SKIPPED_FONTS"
-    print_info "Validated OK         : $VALIDATED_OK"
-    print_info "Validation failures  : $VALIDATED_FAIL"
+    print_info "Checks failed        : $VALIDATED_FAIL"
     print_info "Warnings             : $WARNINGS"
     print_info "Errors               : $ERRORS"
     print_post_install_next_steps

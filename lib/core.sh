@@ -44,7 +44,6 @@ CLONED_REPOS=0
 SKIPPED_REPOS=0
 INSTALLED_FONTS=0
 SKIPPED_FONTS=0
-VALIDATED_OK=0
 VALIDATED_FAIL=0
 WARNINGS=0
 ERRORS=0
@@ -540,10 +539,6 @@ acquire_lock() {
 # Validation helpers
 #######################################
 
-mark_validated_ok() {
-    VALIDATED_OK=$((VALIDATED_OK + 1))
-}
-
 mark_validated_fail() {
     VALIDATED_FAIL=$((VALIDATED_FAIL + 1))
 }
@@ -551,7 +546,6 @@ mark_validated_fail() {
 verify_command_present() {
     local command_name="$1"
     if command -v "$command_name" >/dev/null 2>&1; then
-        mark_validated_ok
         return 0
     fi
     mark_validated_fail
@@ -566,7 +560,6 @@ verify_symlink_target() {
         local current
         current="$(readlink "$target" 2>/dev/null || true)"
         if [ "$current" = "$expected_source" ]; then
-            mark_validated_ok
             return 0
         fi
     fi
@@ -578,7 +571,6 @@ verify_symlink_target() {
 verify_path_exists() {
     local path="$1"
     if [ -e "$path" ] || [ -L "$path" ]; then
-        mark_validated_ok
         return 0
     fi
     mark_validated_fail
@@ -594,7 +586,6 @@ verify_xattr_absent() {
         return 1
     fi
 
-    mark_validated_ok
     return 0
 }
 
@@ -620,7 +611,6 @@ verify_permission_not_group_other_writable() {
         [2367][2367]) mark_validated_fail; return 1 ;;
     esac
 
-    mark_validated_ok
     return 0
 }
 
@@ -677,7 +667,6 @@ ensure_dir() {
 
     if dir_exists "$dir"; then
         print_skip "Directory exists: $dir"
-        mark_validated_ok
         return 0
     fi
 
@@ -685,7 +674,6 @@ ensure_dir() {
         if dir_exists "$dir"; then
             CREATED_DIRS=$((CREATED_DIRS + 1))
             print_ok "Directory created: $dir"
-            mark_validated_ok
             return 0
         fi
     fi
@@ -712,7 +700,6 @@ backup_if_exists() {
         else
             if spinner_run "Remove existing path $target" rm -rf "$target"; then
                 if [ ! -e "$target" ] && [ ! -L "$target" ]; then
-                    mark_validated_ok
                     return 0
                 fi
             fi

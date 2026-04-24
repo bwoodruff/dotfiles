@@ -13,13 +13,11 @@ setup_schedule_macos() {
 
     if [ -f "$plist_path" ] && grep -q "<string>com.bdw.dotfiles.install</string>" "$plist_path"; then
         print_skip "launchd schedule already present"
-        mark_validated_ok
         return 0
     fi
 
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would create launchd schedule at $plist_path"
-        mark_validated_ok
         return 0
     fi
 
@@ -67,7 +65,6 @@ EOF
 
     if launchctl load "$plist_path" >>"$LOG_FILE" 2>&1; then
         print_ok "launchd schedule installed"
-        mark_validated_ok
     else
         print_warn "Could not load launchd plist"
         mark_validated_fail
@@ -88,13 +85,11 @@ setup_schedule_linux() {
     current_cron="$(crontab -l 2>/dev/null || true)"
     if printf '%s\n' "$current_cron" | grep -Fq "$script_path --scheduled --quiet"; then
         print_skip "cron schedule already present"
-        mark_validated_ok
         return 0
     fi
 
     if [ "$DRY_RUN" = "1" ]; then
         print_info "[dry-run] Would install cron schedule"
-        mark_validated_ok
         return 0
     fi
 
@@ -107,7 +102,6 @@ setup_schedule_linux() {
     updated_cron="$(crontab -l 2>/dev/null || true)"
     if printf '%s\n' "$updated_cron" | grep -Fq "$script_path --scheduled --quiet"; then
         print_ok "cron schedule installed"
-        mark_validated_ok
     else
         print_warn "Could not install cron schedule"
         mark_validated_fail
@@ -117,7 +111,6 @@ setup_schedule_linux() {
 setup_schedule() {
     if [ "$SETUP_SCHEDULE" != "1" ]; then
         print_skip "Schedule setup disabled"
-        mark_validated_ok
         return 0
     fi
 
@@ -130,7 +123,6 @@ setup_schedule() {
             ;;
         *)
             print_skip "Schedule setup not implemented for platform: $PLATFORM"
-            mark_validated_ok
             ;;
     esac
 }
