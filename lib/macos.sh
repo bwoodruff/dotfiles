@@ -202,14 +202,37 @@ configure_hostname_once() {
 }
 
 #######################################
+# Appearance (not in MACOS_DEFAULTS_COMMON)
+#######################################
+
+# Recent macOS builds often disagree between `defaults read` and what System Settings shows for
+# Light/Dark/Auto, so `macos_apply` skip logic is unsafe here. The General pane applies Dark via
+# the same System Events path we use; then we best-effort sync plist keys to match.
+macos_apply_dark_appearance() {
+    if [ "$DRY_RUN" = "1" ]; then
+        print_info "[dry-run] Would set Dark appearance (System Events + defaults sync)"
+        return 0
+    fi
+
+    if ! spinner_run "Set Dark appearance" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true'; then
+        print_error "Set Dark appearance failed (System Events). Grant Terminal (or your terminal app) access if macOS asks."
+        mark_validated_fail
+        return 1
+    fi
+
+    if ! macos_write standard NSGlobalDomain AppleInterfaceStyleSwitchesAutomatically bool false; then
+        print_warn "Could not sync AppleInterfaceStyleSwitchesAutomatically to defaults (non-fatal)"
+    fi
+    if ! macos_write standard NSGlobalDomain AppleInterfaceStyle string Dark; then
+        print_warn "Could not sync AppleInterfaceStyle to defaults (non-fatal)"
+    fi
+}
+
+#######################################
 # Declarative defaults
 #######################################
 
 MACOS_DEFAULTS_COMMON=(
-    # If Appearance is "Auto" (time-based), AppleInterfaceStyle in plists can disagree with
-    # what the UI shows; always disable auto first, then set Dark. See e.g. AppleInterfaceStyleSwitchesAutomatically.
-    "Disable auto Light/Dark appearance|standard|NSGlobalDomain|AppleInterfaceStyleSwitchesAutomatically|bool|false|"
-    "Set Dark appearance|standard|NSGlobalDomain|AppleInterfaceStyle|string|Dark|"
     "Set purple accent color|standard|NSGlobalDomain|AppleAccentColor|int|5|"
     "Always show scrollbars|standard|NSGlobalDomain|AppleShowScrollBars|string|Always|"
     "Expand save panel|standard|NSGlobalDomain|NSNavPanelExpandedStateForSaveMode|bool|true|"
@@ -293,6 +316,7 @@ configure_global_macos_preferences() {
     osascript -e 'tell application "System Settings" to quit' 2>/dev/null || true
     osascript -e 'tell application "System Preferences" to quit' 2>/dev/null || true
 
+    macos_apply_dark_appearance
     configure_hostname_once
     apply_records "${MACOS_DEFAULTS_COMMON[@]}"
 }
