@@ -120,8 +120,7 @@ restart_finder_if_needed() {
         return 0
     fi
 
-    if spinner_run "Restart Finder" killall Finder; then
-    else
+    if ! spinner_run "Restart Finder" killall Finder; then
         mark_validated_fail
     fi
 }

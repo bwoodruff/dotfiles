@@ -98,6 +98,7 @@ ensure_homebrew_shellenv_configured() {
     eval "$("$brew_bin" shellenv)"
 
     if command_exists brew; then
+        :
     else
         print_error "Failed to activate Homebrew in current shell"
         mark_validated_fail
@@ -141,7 +142,7 @@ install_homebrew_if_needed() {
 
     if homebrew_available; then
         print_skip "Homebrew already installed ($(command -v brew))"
-        else
+    else
         if ! ensure_sudo_cached; then
             print_error "Unable to authenticate for Homebrew installation"
             mark_validated_fail
@@ -195,6 +196,7 @@ upgrade_packages() {
         mac)
             if homebrew_available; then
                 if spinner_run "brew update" brew update; then
+                    :
                 else
                     print_warn "brew update failed"
                     mark_validated_fail
