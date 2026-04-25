@@ -233,6 +233,7 @@ main() {
     init_sections
     init_logging
     prepare_interactive_screen
+    print_dotfiles_banner
     # Compare to origin, pull with --ff-only, and re-exec once so the rest of the run uses fresh sources.
     maybe_reexec_fresh_install_script "$SCRIPT_DIR" "$@"
     progress_setup

@@ -180,6 +180,46 @@ init_colors() {
     fi
 }
 
+# Nord Frost (#8FBCBB -> #5E81AC), top-to-bottom gradient. Skipped for --quiet / --scheduled / non-TTY.
+print_dotfiles_banner() {
+    is_interactive || return 0
+    [ "${TERM:-}" != "dumb" ] || return 0
+
+    printf '\n\n'
+
+    local r0=143 g0=188 b0=187 r1=94 g1=129 b1=172
+    local content_row=0 r g b t
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ -z "$line" ]; then
+            printf '\n'
+            continue
+        fi
+        content_row=$((content_row + 1))
+        if [ "$USE_COLOR" = "1" ]; then
+            if [ "$content_row" -ge 4 ]; then
+                t=1000
+            else
+                t=$(( (content_row - 1) * 1000 / 3 ))
+            fi
+            r=$(( r0 + (r1 - r0) * t / 1000 ))
+            g=$(( g0 + (g1 - g0) * t / 1000 ))
+            b=$(( b0 + (b1 - b0) * t / 1000 ))
+            printf '\033[38;2;%d;%d;%dm%s\033[0m\n' "$r" "$g" "$b" "$line"
+        else
+            printf '%s\n' "$line"
+        fi
+    done <<'BANNER'
+▗▄▄▖  ▗▄▖  ▗▄▖▗▄▄▄▖▗▄▄▖▗▄▄▄▖▗▄▄▖  ▗▄▖ ▗▄▄▖ 
+▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌ █ ▐▌     █  ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▚▖▐▌ ▐▌▐▌ ▐▌ █  ▝▀▚▖  █  ▐▛▀▚▖▐▛▀▜▌▐▛▀▘ 
+▐▙▄▞▘▝▚▄▞▘▝▚▄▞▘ █ ▗▄▄▞▘  █  ▐▌ ▐▌▐▌ ▐▌▐▌   
+
+
+BANNER
+    printf '\n'
+}
+
 #######################################
 # Logging
 #######################################
