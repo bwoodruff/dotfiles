@@ -1,4 +1,12 @@
-#   Dotfiles Bootstrap
+```
+
+▗▄▄▖  ▗▄▖  ▗▄▖▗▄▄▄▖▗▄▄▖▗▄▄▄▖▗▄▄▖  ▗▄▖ ▗▄▄▖ 
+▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌ █ ▐▌     █  ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▚▖▐▌ ▐▌▐▌ ▐▌ █  ▝▀▚▖  █  ▐▛▀▚▖▐▛▀▜▌▐▛▀▘ 
+▐▙▄▞▘▝▚▄▞▘▝▚▄▞▘ █ ▗▄▄▞▘  █  ▐▌ ▐▌▐▌ ▐▌▐▌   
+
+
+```
 
 _Disclaimer: This repo is public primarily for convenience. It allows the bootstrap process to run without requiring prior authentication (for example, installing 1Password or configuring `gh` first)._
 
