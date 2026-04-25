@@ -32,6 +32,7 @@ LOG_DIR="${LOG_DIR:-$STATE_HOME/dotfiles}"
 LOG_FILE="${LOG_FILE:-$LOG_DIR/install.log}"
 BACKUP_SUFFIX="${BACKUP_SUFFIX:-.old}"
 LOCK_DIR="${LOCK_DIR:-$CACHE_HOME/dotfiles-install.lock}"
+SCRIPTURE_VERSES_FILE="${SCRIPTURE_VERSES_FILE:-$DOTFILES_DIR/lib/scripture_verses.txt}"
 
 #######################################
 # Counters / status
@@ -217,6 +218,108 @@ print_dotfiles_banner() {
 
 
 BANNER
+    printf '\n'
+}
+
+print_random_scripture_verse() {
+    is_interactive || return 0
+    [ "${TERM:-}" != "dumb" ] || return 0
+    [ -f "$SCRIPTURE_VERSES_FILE" ] || return 0
+    [ -r "$SCRIPTURE_VERSES_FILE" ] || return 0
+    [ -s "$SCRIPTURE_VERSES_FILE" ] || return 0
+
+    local max_verse_file_bytes verse_file_bytes verse
+    max_verse_file_bytes=1048576
+    verse_file_bytes="$(wc -c <"$SCRIPTURE_VERSES_FILE" 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "$verse_file_bytes" ] || ! [[ "$verse_file_bytes" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+    if [ "$verse_file_bytes" -gt "$max_verse_file_bytes" ]; then
+        return 0
+    fi
+
+    verse="$(
+        awk '
+        BEGIN { srand(); count = 0; current = ""; chosen = ""; non_empty = 0 }
+        function consider() {
+            if (current == "") {
+                return
+            }
+            if (non_empty < 2) {
+                current = ""
+                non_empty = 0
+                return
+            }
+            count++
+            if (int(rand() * count) == 0) {
+                chosen = current
+            }
+            current = ""
+            non_empty = 0
+        }
+        {
+            gsub(/\r$/, "", $0)
+        }
+        $0 == "%%" { consider(); next }
+        {
+            if ($0 ~ /[^[:space:]]/) {
+                non_empty++
+            }
+            if (current == "") {
+                current = $0
+            } else {
+                current = current "\n" $0
+            }
+        }
+        END {
+            consider()
+            if (chosen != "") {
+                print chosen
+            }
+        }' "$SCRIPTURE_VERSES_FILE" 2>/dev/null || true
+    )"
+
+    [ -n "$verse" ] || return 0
+
+    local reference body line
+    reference="${verse%%$'\n'*}"
+    if [ "$reference" = "$verse" ]; then
+        body=""
+    else
+        body="${verse#*$'\n'}"
+    fi
+
+    if [ "$USE_COLOR" = "1" ]; then
+        local label_color ref_color body_color border_color
+        label_color=$'\033[38;2;136;192;208m'
+        ref_color=$'\033[1;38;2;143;188;187m'
+        body_color=$'\033[38;2;216;222;233m'
+        border_color=$'\033[38;2;129;161;193m'
+
+        printf '%s✝ Scripture ✝%s\n' "$label_color" "$C_RESET"
+        printf '%s%s%s\n' "$ref_color" "$reference" "$C_RESET"
+        if [ -n "$body" ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+                if [ -z "$line" ]; then
+                    printf '\n'
+                else
+                    printf '%s|%s %s%s%s\n' "$border_color" "$C_RESET" "$body_color" "$line" "$C_RESET"
+                fi
+            done <<< "$body"
+        fi
+    else
+        printf '+ Scripture +\n'
+        printf '%s\n' "$reference"
+        if [ -n "$body" ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+                if [ -z "$line" ]; then
+                    printf '\n'
+                else
+                    printf '| %s\n' "$line"
+                fi
+            done <<< "$body"
+        fi
+    fi
     printf '\n'
 }
 
