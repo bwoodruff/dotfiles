@@ -160,12 +160,13 @@ install_alfred_macos() {
         return 0
     fi
 
-    local force_args=()
+    local brew_args=(install --cask)
     if [ "$FORCE_BREW" = "1" ] && [ -n "$existing" ]; then
-        force_args=(--force)
+        brew_args+=(--force)
     fi
+    brew_args+=(alfred)
 
-    if spinner_run "Install Alfred via Homebrew cask" brew install --cask "${force_args[@]}" alfred; then
+    if spinner_run "Install Alfred via Homebrew cask" brew "${brew_args[@]}"; then
         existing="$(alfred_app_bundle_path || true)"
         if [ -z "$existing" ]; then
             print_error "Alfred cask install reported success but no Alfred.app was found in /Applications"
