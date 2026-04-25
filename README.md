@@ -43,7 +43,7 @@ The bootstrap script runs in phases for setup, tooling, configuration, and valid
 
 ### Core Features
 
-- Installs and updates packages via Homebrew (macOS) or the system package manager (Linux)
+- Installs and updates packages via Homebrew (macOS) or the system package manager (Linux); on macOS, **package checks** also ensure the **`mas`** CLI is present (for Mac App Store installs). **`mas`** is skipped on Linux
 - Installs apps like:
   - Alacritty
   - GitHub CLI (`gh`)
@@ -81,7 +81,7 @@ Nothing should be duplicated or broken on re-run. The script checks current stat
 
 By default, the bootstrap compares your checked-out branch to `origin` (no version tags or releases: it uses `git` commits on the current branch). If you are **behind** the remote, the working tree is **clean**, and a **fast-forward** is possible, it runs `git pull --ff-only` and **re-executes** `install.sh` with the same arguments so loaded shell code matches the tree on disk. The second run will not pull again in a loop.
 
-Self-update is skipped when it would be unsafe or ambiguous, including: dry-run mode, a dirty working tree, local commits not on the remote, pull or fetch errors, a detached `HEAD`, and when `origin` is not a clone of this repo (unless you allow it; see the table below). The install script and `DOTFILES_DIR` are expected to point at the same repository.
+Self-update is skipped when it would be unsafe or ambiguous, including: dry-run mode, **uncommitted or unstaged changes** in the dotfiles repo, local commits not on the remote, pull or fetch errors, a detached `HEAD`, and when `origin` is not a clone of this repo (unless you allow it; see the table below). The install script and `DOTFILES_DIR` are expected to point at the same repository.
 
 `--pull-dotfiles` (for example in scheduled mode) still runs a pull during the **Git** task, but the **default self-update** runs earlier. If a self-update already pulled, the later pull is skipped as redundant.
 
@@ -178,6 +178,7 @@ Quick reference for what runs where:
   - fonts, vim, tmux, GPG, 1Password, scheduling, fastfetch
 - **macOS-only**
   - Homebrew bootstrap task
+  - **`mas`** Homebrew formula during package checks (Mac App Store CLI; not used on Linux)
   - GitHub Desktop install
   - Alfred (Homebrew cask), **1Password for Safari** (`mas` + `sudo mas get`, requires Mac App Store Apple ID)
   - declarative macOS / Dock / Finder preferences
@@ -316,7 +317,7 @@ Notes:
 
 - Desktop app uses its built-in auto-updater
 - The script does **not** modify 1Password application settings inside the apps
-- **`mas`** is installed with Homebrew only when the Safari step needs it (it is not part of the generic Linux package list)
+- **`mas`** is installed with Homebrew during **package checks** on macOS (same as `git`, `gh`, etc.); on Linux the installer **skips** `mas` because it is Mac App Store–only
 - Mac App Store installs need an Apple ID session in the App Store app; the installer cannot sign in for you. If `mas` fails for account reasons, **Next steps** tells you to open the App Store, sign in, and re-run
 - After a successful Safari app install, **Next steps** reminds you to enable the extension under Safari **Settings → Extensions**
 
@@ -355,9 +356,15 @@ Most macOS defaults are now applied through a reusable declarative engine that:
 - writes only when needed
 - verifies after writing
 
-This includes global defaults (for example appearance/accent, Safari, trackpad, save/print panel preferences, and **menu bar clock**: 24-hour time, **ShowDate = 1** to match `com.apple.menuextra.clock`, **ShowAMPM** off for 24-hour display, **DateFormat** `MM/dd/yyyy` when the system honors that key) plus **Dock** and **Finder** preferences.
+This includes global defaults (for example appearance/accent, Safari, trackpad, save/print panel preferences, and **menu bar clock**) plus **Dock** and **Finder** preferences.
 
-Apple may rename or relocate some clock controls on newer macOS; if a defaults line fails verification, check `defaults read com.apple.menuextra.clock` and adjust `MACOS_DEFAULTS_COMMON` in `lib/macos.sh`.
+Clock-related keys in `MACOS_DEFAULTS_COMMON` include **`AppleICUForce24HourTime`** on `NSGlobalDomain` (this is what actually forces 24-hour time in the menu bar on many macOS versions), plus **`com.apple.menuextra.clock`** (`Show24Hour`, **`ShowAMPM` false**, **`ShowDate` 1**, **`DateFormat` `MM/dd/yyyy`**). **`ShowAMPM` false** removes AM/PM; if the time still looks 12-hour until you toggle **System Settings → General → Language & Region → 24-Hour Time**, the ICU default above is the usual fix.
+
+**Date format:** Apple often shows the date as a short month name plus day (for example `Apr 24`) in the menu bar even when `DateFormat` is set, because **Control Center** / menu bar modules can override legacy `menuextra.clock` formatting. The script still sets `DateFormat` when the system accepts it; for a strict numeric `MM/dd/yyyy` in the menu bar you may need an extra step in **System Settings → Control Center → Clock** (or adjust keys again after an OS upgrade).
+
+If a defaults line fails verification, check `defaults read com.apple.menuextra.clock` and `defaults read -g AppleICUForce24HourTime`, then adjust `MACOS_DEFAULTS_COMMON` in `lib/macos.sh`.
+
+If the menu bar clock does not refresh immediately after changes, logging out and back in or restarting **SystemUIServer** (`killall SystemUIServer`) often applies them without a full reboot.
 
 ### Dock
 

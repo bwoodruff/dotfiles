@@ -701,17 +701,7 @@ install_1password_safari_via_mas() {
     fi
 
     if ! command_exists mas; then
-        if spinner_run "Install mas via Homebrew" brew install mas; then
-            INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
-            print_ok "Installed mas ($(mas version 2>/dev/null | head -n1 || echo unknown))"
-        else
-            print_warn "Could not install mas; skipping 1Password for Safari"
-            return 0
-        fi
-    fi
-
-    if ! command_exists mas; then
-        print_warn "mas CLI still not available after install attempt; skipping 1Password for Safari"
+        print_warn "mas is not installed (it is listed in package checks on macOS as brew install mas); skipping 1Password for Safari"
         return 0
     fi
 

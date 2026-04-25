@@ -326,6 +326,12 @@ ensure_command() {
         return 0
     fi
 
+    if [ "$package_name" = "mas" ] && [ "$PLATFORM" != "mac" ]; then
+        SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
+        print_skip "mas (Mac App Store CLI) is only installed on macOS"
+        return 0
+    fi
+
     case "$PLATFORM" in
         mac)
             if ! homebrew_available; then
@@ -468,4 +474,5 @@ PACKAGES=(
     "fastfetch|fastfetch"
     "gh|gh"
     "gpg|gnupg"
+    "mas|mas"
 )

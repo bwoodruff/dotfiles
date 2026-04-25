@@ -281,6 +281,7 @@ MACOS_DEFAULTS_COMMON=(
     "Disable Safari autofill passwords|standard|com.apple.Safari|AutoFillPasswords|bool|false|"
     "Disable Safari autofill credit cards|standard|com.apple.Safari|AutoFillCreditCardData|bool|false|"
     "Disable Safari autofill misc|standard|com.apple.Safari|AutoFillMiscellaneousForms|bool|false|"
+    "Force 24-hour time (system)|standard|NSGlobalDomain|AppleICUForce24HourTime|bool|true|"
     "Menu bar 24-hour clock|standard|com.apple.menuextra.clock|Show24Hour|bool|true|"
     "Menu bar hide AM/PM (24-hour display)|standard|com.apple.menuextra.clock|ShowAMPM|bool|false|"
     "Menu bar show date|standard|com.apple.menuextra.clock|ShowDate|int|1|"
