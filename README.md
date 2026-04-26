@@ -65,6 +65,7 @@ The bootstrap script runs in phases for setup, tooling, configuration, and valid
 - Applies macOS preferences through a declarative defaults engine (including menu bar clock and Dock)
 - Applies Dock and Finder preferences through the same validation model
 - Installs fonts
+- Ensures `$HOME/.hushlogin` exists (suppresses shell login banners like "Last login")
 - Verifies outcomes after each step
 - Automatically clears macOS quarantine attributes for downloaded binaries when appropriate
 - Supports scheduled maintenance runs

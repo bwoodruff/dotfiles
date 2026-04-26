@@ -102,6 +102,31 @@ task_directory_setup() {
     ensure_dir "${HOME}/.tmux/plugins"
 }
 
+task_hushlogin() {
+    local hushlogin_path="${HOME}/.hushlogin"
+
+    if [ -f "$hushlogin_path" ]; then
+        print_skip ".hushlogin already exists: $hushlogin_path"
+        return 0
+    fi
+
+    if spinner_run "Create .hushlogin in \$HOME" touch "$hushlogin_path"; then
+        if [ "$DRY_RUN" = "1" ]; then
+            print_ok "Would create .hushlogin: $hushlogin_path"
+            return 0
+        fi
+
+        if [ -f "$hushlogin_path" ]; then
+            print_ok "Created .hushlogin: $hushlogin_path"
+            return 0
+        fi
+    fi
+
+    print_error "Failed to create .hushlogin: $hushlogin_path"
+    mark_validated_fail
+    return 1
+}
+
 task_package_checks() {
     local package_spec command_name package_name
 
@@ -203,6 +228,7 @@ TASKS=(
     "Environment|task_environment|all|0"
     "Homebrew|install_homebrew_if_needed|mac|0"
     "Directory setup|task_directory_setup|all|0"
+    "hushlogin|task_hushlogin|all|0"
     "Package upgrades|upgrade_packages|all|0"
     "Package checks|task_package_checks|all|0"
     "Alacritty|install_or_update_alacritty|mac|0"

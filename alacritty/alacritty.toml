@@ -36,8 +36,8 @@ size = 13
 family = "MesloLGS NF"
 
 [window.dimensions]
-columns = 160
-lines = 48
+columns = 140
+lines = 40
 
 [window.padding]
 x = 5
@@ -45,3 +45,4 @@ y = 5
 
 [window]
 opacity = 0.9
+decorations = "Buttonless"
