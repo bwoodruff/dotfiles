@@ -231,7 +231,7 @@ TASKS=(
     "hushlogin|task_hushlogin|all|0"
     "Package upgrades|upgrade_packages|all|0"
     "Package checks|task_package_checks|all|0"
-    "Alacritty|install_or_update_alacritty|mac|0"
+    "Alacritty|install_or_update_alacritty|all|0"
     "Git|task_git|all|0"
     "GitHub Desktop|install_github_desktop|mac|0"
     "Alfred|install_alfred_macos|mac|0"

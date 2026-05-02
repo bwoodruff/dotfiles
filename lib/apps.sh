@@ -519,7 +519,7 @@ EOF
         print_skip "1Password RPM repository already configured"
     fi
 
-    if spinner_run "dnf makecache (1Password repo)" sudo dnf makecache; then
+    if spinner_run "dnf makecache (1Password repo)" sudo dnf -y makecache; then
         print_ok "1Password RPM repository refreshed"
     else
         print_warn "Could not refresh DNF metadata after adding 1Password repo"

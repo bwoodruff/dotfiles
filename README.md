@@ -182,6 +182,7 @@ Quick reference for what runs where:
 
 - **Runs on both macOS and Linux**
   - package checks and upgrades
+  - Alacritty (Linux: `apt` / `dnf` / `pacman`; macOS: GitHub release DMG)
   - symlink/config setup
   - git / dotfiles update flow (default [self-update](#self-update) at startup, optional `--pull-dotfiles` in the Git task)
   - fonts, vim, tmux, GPG, 1Password, scheduling, fastfetch
