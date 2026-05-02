@@ -450,6 +450,7 @@ print_rule() {
 #######################################
 
 PROGRESS_UI_ENABLED=0
+PROGRESS_UI_SUSPENDED=0
 PROGRESS_TOTAL=0
 PROGRESS_CURRENT=0
 PROGRESS_TITLE="Bootstrap"
@@ -497,10 +498,12 @@ progress_destroy() {
     tput rc 2>/dev/null || true
 
     PROGRESS_UI_ENABLED=0
+    PROGRESS_UI_SUSPENDED=0
 }
 
 progress_draw() {
     [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
+    [ "${PROGRESS_UI_SUSPENDED:-0}" -eq 1 ] && return 0
 
     local cols lines label counter reserved width filled empty
     cols="$CURRENT_NR_COLS"
@@ -537,6 +540,27 @@ progress_draw() {
 progress_advance() {
     [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
     PROGRESS_CURRENT="$CURRENT_SECTION"
+    progress_draw
+}
+
+# Hide the footer progress bar while sudo may prompt on the controlling TTY.
+progress_suspend_for_sudo() {
+    [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
+
+    PROGRESS_UI_SUSPENDED=1
+    local lines
+    lines="${CURRENT_NR_LINES:-24}"
+
+    tput sc 2>/dev/null || true
+    tput cup $((lines - 1)) 0 2>/dev/null || true
+    tput el 2>/dev/null || true
+    tput rc 2>/dev/null || true
+}
+
+progress_resume_after_sudo() {
+    [ "${PROGRESS_UI_ENABLED:-0}" -eq 1 ] || return 0
+
+    PROGRESS_UI_SUSPENDED=0
     progress_draw
 }
 
@@ -608,13 +632,33 @@ start_section() {
     progress_advance
 }
 
+# Run `sudo ...` in the foreground with live output when a password may be read from the TTY.
+# Background + spinner fights sudo's prompt; unattended runs use sudo -n instead (see spinner_run).
+spinner_command_is_interactive_sudo() {
+    local -a c=("$@")
+
+    [ "${#c[@]}" -ge 1 ] || return 1
+    [ "${c[0]}" = "sudo" ] || return 1
+    [ "${c[1]}" = "-n" ] && return 1
+    [ -t 0 ] || return 1
+    [ "$SCHEDULED" != "1" ] || return 1
+    return 0
+}
+
 spinner_run() {
     local description="$1"
     shift
+    local -a cmd=("$@")
+
+    if [ "${#cmd[@]}" -ge 1 ] && [ "${cmd[0]}" = "sudo" ]; then
+        if { [ "$SCHEDULED" = "1" ] || [ ! -t 0 ]; } && [ "${cmd[1]}" != "-n" ]; then
+            cmd=(sudo -n "${cmd[@]:1}")
+        fi
+    fi
 
     if [ "$DRY_RUN" = "1" ]; then
         local rendered
-        rendered="$(printf '%q ' "$@")"
+        rendered="$(printf '%q ' "${cmd[@]}")"
         if [ "$QUIET" != "1" ]; then
             printf '%s%s%s %s\n' "${C_MAGENTA}" "$TAG_RUN" "${C_RESET}" "$description"
             printf '      %s\n' "$rendered"
@@ -625,10 +669,10 @@ spinner_run() {
     fi
 
     append_log "$TAG_RUN $description"
-    append_log "       $(printf '%q ' "$@")"
+    append_log "       $(printf '%q ' "${cmd[@]}")"
 
     if [ "$QUIET" = "1" ]; then
-        "$@" >>"$LOG_FILE" 2>&1
+        "${cmd[@]}" >>"$LOG_FILE" 2>&1
         local status=$?
         if [ "$status" -eq 0 ]; then
             append_log "$TAG_OK $description"
@@ -638,7 +682,27 @@ spinner_run() {
         return "$status"
     fi
 
-    "$@" >>"$LOG_FILE" 2>&1 &
+    if spinner_command_is_interactive_sudo "${cmd[@]}"; then
+        printf '%s%s%s %s\n' "${C_WHITE}" "$TAG_RUN" "${C_RESET}" "$description"
+        printf '\n'
+        progress_suspend_for_sudo
+        "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+        local status=${PIPESTATUS[0]}
+        progress_resume_after_sudo
+        printf '\r\033[K'
+
+        if [ "$status" -eq 0 ]; then
+            printf '%s%s%s %s\n' "${C_GREEN}" "$TAG_OK" "${C_RESET}" "$description"
+            append_log "$TAG_OK $description"
+            return 0
+        fi
+
+        printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description"
+        append_log "$TAG_FAIL $description (exit $status)"
+        return "$status"
+    fi
+
+    "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
     local pid=$!
     local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local i=0
@@ -660,11 +724,11 @@ spinner_run() {
         printf '%s%s%s %s\n' "${C_GREEN}" "$TAG_OK" "${C_RESET}" "$description"
         append_log "$TAG_OK $description"
         return 0
-    else
-        printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description"
-        append_log "$TAG_FAIL $description (exit $status)"
-        return "$status"
     fi
+
+    printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description"
+    append_log "$TAG_FAIL $description (exit $status)"
+    return "$status"
 }
 
 #######################################

@@ -210,6 +210,8 @@ Operational notes to know before running:
 - **Privilege use**
   - some install and system-level operations use `sudo`
   - the script caches sudo credentials when required
+  - in interactive terminals, `sudo` commands run in the foreground (with output mirrored to the install log) so password prompts are not mixed with the spinner line
+  - when stdin is not a TTY or `--scheduled` is used, `sudo` is invoked as `sudo -n` so unattended runs fail fast instead of hanging on a password prompt (configure **passwordless sudo** or equivalent for fully unattended upgrades/installs)
 - **Restarts and reloads**
   - Finder may be restarted if Finder preferences changed
   - Dock may be restarted if Dock preferences changed
@@ -219,6 +221,7 @@ Operational notes to know before running:
 - **Scheduled mode behavior**
   - `--scheduled` implies `--pull-dotfiles` and quiet/non-interactive behavior
   - prompt-driven actions are skipped
+  - package-manager steps that need elevation rely on non-interactive sudo (`sudo -n`); ensure your environment allows that (for example NOPASSWD rules for `dnf`/`apt` where appropriate)
 - **Network and git**
   - unless `--no-auto-update` or `DOTFILES_AUTO_UPDATE=0`, the script may contact `git` `origin` once at the start; it does not send telemetry beyond normal `git` operations
 - **Write locations**
