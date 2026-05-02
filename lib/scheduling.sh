@@ -76,7 +76,7 @@ cron_schedule_line_present() {
     local script_path="$2"
 
     printf '%s\n' "$cron_text" | grep -Fq "$script_path" \
-        && printf '%s\n' "$cron_text" | grep -Fq "--scheduled --quiet"
+        && printf '%s\n' "$cron_text" | grep -Fq -- "--scheduled --quiet"
 }
 
 setup_schedule_linux() {
