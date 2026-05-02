@@ -52,8 +52,13 @@ update_dotfiles_repo() {
     if spinner_run "Pull dotfiles repo" dotfiles_git_http "$git_bin" -C "$DOTFILES_DIR" pull --ff-only; then
         print_ok "Dotfiles repo pulled"
     else
+        local pull_status=$?
         print_warn "Dotfiles pull failed"
-        command_exists gh && GH_NEEDS_AUTH_HINT=1
+        # Do not assume HTTPS auth when the failure was "command not found" (127), timeout (124), etc.
+        case "$pull_status" in
+            124|126|127) ;;
+            *) command_exists gh && GH_NEEDS_AUTH_HINT=1 ;;
+        esac
         mark_validated_fail
     fi
 }

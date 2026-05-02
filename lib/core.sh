@@ -359,6 +359,16 @@ dotfiles_git_http() {
         "$@"
 }
 
+# timeout(1) exec's argv[0]; bash functions are not files on PATH. Child bash needs these.
+export -f dotfiles_curl dotfiles_git_http
+
+# Run "${cmd[@]}" under timeout via bash so exported shell functions work as cmd[0].
+spinner_run_timeout_exec() {
+    local tsec="$1"
+    shift
+    timeout "$tsec" bash -c '"$@"' _ "$@"
+}
+
 #######################################
 # Logging
 #######################################
@@ -729,7 +739,7 @@ spinner_run() {
     if [ "$QUIET" = "1" ]; then
         local status
         if [ -n "$tsec" ] && command -v timeout >/dev/null 2>&1; then
-            timeout "$tsec" "${cmd[@]}" >>"$LOG_FILE" 2>&1
+            spinner_run_timeout_exec "$tsec" "${cmd[@]}" >>"$LOG_FILE" 2>&1
         else
             "${cmd[@]}" >>"$LOG_FILE" 2>&1
         fi
@@ -749,7 +759,7 @@ spinner_run() {
         printf '\n'
         progress_suspend_for_sudo
         if [ -n "$tsec" ] && command -v timeout >/dev/null 2>&1; then
-            timeout "$tsec" "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+            spinner_run_timeout_exec "$tsec" "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
         else
             "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
         fi
@@ -775,7 +785,7 @@ spinner_run() {
     fi
 
     if [ -n "$tsec" ] && command -v timeout >/dev/null 2>&1; then
-        timeout "$tsec" "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
+        spinner_run_timeout_exec "$tsec" "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
     else
         "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
     fi

@@ -530,6 +530,84 @@ EOF
     return 0
 }
 
+# Official .tar.gz flow for aarch64/x86_64 when APT repo is amd64-only or RPM has no desktop build.
+# https://support.1password.com/install-linux/ — "ARM or other distributions (.tar.gz)"
+install_1password_linux_app_via_tar() {
+    local machine="" tar_subdir="" url="" tmpdir="" extracted=""
+    local -a cand=()
+
+    if onepassword_linux_installed; then
+        SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
+        print_skip "1Password already installed ($(onepassword_linux_version || true))"
+        return 0
+    fi
+
+    machine="$(uname -m)"
+    case "$machine" in
+        x86_64) tar_subdir="x86_64" ;;
+        aarch64) tar_subdir="aarch64" ;;
+        *)
+            print_skip "1Password desktop tarball supports x86_64 and aarch64 only (this CPU is ${machine})"
+            return 0
+            ;;
+    esac
+
+    url="https://downloads.1password.com/linux/tar/stable/${tar_subdir}/1password-latest.tar.gz"
+    tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-1password.XXXXXX")" || {
+        print_error "Could not create temp directory for 1Password"
+        mark_validated_fail
+        return 1
+    }
+
+    if [ "$DRY_RUN" = "1" ]; then
+        print_info "[dry-run] Would download and install 1Password from tarball ($url)"
+        rm -rf "$tmpdir"
+        return 0
+    fi
+
+    if ! spinner_run "Download 1Password for Linux (tarball)" dotfiles_curl -fsSL -o "$tmpdir/1password-latest.tar.gz" "$url"; then
+        print_error "Could not download 1Password tarball"
+        rm -rf "$tmpdir"
+        mark_validated_fail
+        return 1
+    fi
+
+    if ! spinner_run "Extract 1Password archive" sudo tar -xf "$tmpdir/1password-latest.tar.gz" -C "$tmpdir"; then
+        print_error "Could not extract 1Password tarball"
+        rm -rf "$tmpdir"
+        mark_validated_fail
+        return 1
+    fi
+
+    shopt -s nullglob
+    cand=( "$tmpdir"/1password-* )
+    shopt -u nullglob
+    if [ "${#cand[@]}" -ne 1 ] || [ ! -d "${cand[0]}" ]; then
+        print_error "Unexpected 1Password archive layout after extract"
+        rm -rf "$tmpdir"
+        mark_validated_fail
+        return 1
+    fi
+    extracted="${cand[0]}"
+
+    if ! spinner_run "Install 1Password under /opt/1Password" sudo bash -c 'mkdir -p /opt/1Password && mv "$1"/* /opt/1Password/' _ "$extracted"; then
+        print_error "Could not install 1Password under /opt"
+        rm -rf "$tmpdir"
+        mark_validated_fail
+        return 1
+    fi
+
+    rm -rf "$tmpdir"
+
+    if ! spinner_run "Run 1Password system integration" sudo /opt/1Password/after-install.sh; then
+        print_error "1Password after-install.sh failed"
+        mark_validated_fail
+        return 1
+    fi
+
+    mark_1password_linux_installed
+}
+
 install_1password_linux_app() {
     if onepassword_linux_installed; then
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
@@ -540,28 +618,31 @@ install_1password_linux_app() {
     if apt_available; then
         local apt_arch=""
         apt_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
-        if [ "$apt_arch" != "amd64" ]; then
-            print_skip "1Password desktop APT repository is amd64-only (this system is ${apt_arch}); install manually if needed"
-            return 0
-        fi
-        ensure_1password_linux_repo_apt || return 1
-        if spinner_run "Install 1Password for Linux" sudo apt-get install -y 1password; then
-            mark_1password_linux_installed
+        if [ "$apt_arch" = "amd64" ]; then
+            ensure_1password_linux_repo_apt || return 1
+            if spinner_run "Install 1Password for Linux" sudo apt-get install -y 1password; then
+                mark_1password_linux_installed
+            else
+                print_error "Could not install 1Password for Linux"
+                mark_validated_fail
+            fi
+        elif [ "$apt_arch" = "arm64" ]; then
+            install_1password_linux_app_via_tar || return 1
         else
-            print_error "Could not install 1Password for Linux"
-            mark_validated_fail
+            print_skip "1Password desktop: unsupported APT architecture (${apt_arch}); install manually if needed"
+            return 0
         fi
     elif dnf_available; then
         ensure_1password_linux_repo_dnf || return 1
-        if ! dnf_repo_package_available "1password"; then
-            print_skip "1Password desktop RPM not in stable repo for this CPU ($(uname -m)); see https://releases.1password.com/linux/ or Flatpak"
-            return 0
-        fi
-        if spinner_run "Install 1Password for Linux" sudo dnf install -y 1password; then
-            mark_1password_linux_installed
+        if dnf_repo_package_available "1password"; then
+            if spinner_run "Install 1Password for Linux" sudo dnf install -y 1password; then
+                mark_1password_linux_installed
+            else
+                print_error "Could not install 1Password for Linux"
+                mark_validated_fail
+            fi
         else
-            print_error "Could not install 1Password for Linux"
-            mark_validated_fail
+            install_1password_linux_app_via_tar || return 1
         fi
     else
         print_warn "Automatic 1Password Linux install not implemented for this distro"
