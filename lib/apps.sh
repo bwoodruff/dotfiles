@@ -435,18 +435,36 @@ install_1password_mac_app() {
 #######################################
 
 onepassword_linux_installed() {
-    command_exists 1password
+    command_exists 1password && return 0
+    if command_exists flatpak && flatpak info com.onepassword.OnePassword &>/dev/null; then
+        return 0
+    fi
+    return 1
 }
 
 onepassword_linux_version() {
     if command_exists 1password; then
         1password --version 2>/dev/null | awk '{print $2}'
+        return 0
+    fi
+    if command_exists flatpak && flatpak info com.onepassword.OnePassword &>/dev/null; then
+        flatpak info com.onepassword.OnePassword 2>/dev/null | awk -F': ' '$1 ~ /Version/ {print $2; exit}'
     fi
 }
 
+# apt_arch is dpkg architecture: amd64 (desktop + CLI .debs) or arm64 (CLI .deb only; desktop uses Flatpak).
 ensure_1password_linux_repo_apt() {
+    local apt_arch="${1:?}"
     local keyring="/usr/share/keyrings/1password-archive-keyring.gpg"
     local repo_file="/etc/apt/sources.list.d/1password.list"
+
+    case "$apt_arch" in
+        amd64|arm64) ;;
+        *)
+            print_error "ensure_1password_linux_repo_apt: unsupported architecture: $apt_arch"
+            return 1
+            ;;
+    esac
 
     if [ ! -f "$keyring" ]; then
         if spinner_run "Install 1Password APT signing key" bash -lc \
@@ -461,9 +479,12 @@ ensure_1password_linux_repo_apt() {
         print_skip "1Password APT signing key already present"
     fi
 
-    if [ ! -f "$repo_file" ]; then
-        if spinner_run "Configure 1Password APT repository" sudo tee "$repo_file" >/dev/null <<'EOF'
-deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main
+    if [ ! -f "$repo_file" ] || ! grep -qF "linux/debian/${apt_arch}" "$repo_file" 2>/dev/null; then
+        if [ -f "$repo_file" ]; then
+            print_info "Rewriting 1Password APT source for ${apt_arch}"
+        fi
+        if spinner_run "Configure 1Password APT repository (${apt_arch})" sudo tee "$repo_file" >/dev/null <<EOF
+deb [arch=${apt_arch} signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/${apt_arch} stable main
 EOF
         then
             :
@@ -473,7 +494,7 @@ EOF
             return 1
         fi
     else
-        print_skip "1Password APT repository already configured"
+        print_skip "1Password APT repository already configured (${apt_arch})"
     fi
 
     if spinner_run "apt-get update (1Password repo)" sudo apt-get update; then
@@ -530,77 +551,27 @@ EOF
     return 0
 }
 
-# Official .tar.gz flow for aarch64/x86_64 when APT repo is amd64-only or RPM has no desktop build.
-# https://support.1password.com/install-linux/ — "ARM or other distributions (.tar.gz)"
-install_1password_linux_app_via_tar() {
-    local machine="" tar_subdir="" url="" tmpdir="" extracted=""
-    local -a cand=()
-
-    if onepassword_linux_installed; then
-        SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
-        print_skip "1Password already installed ($(onepassword_linux_version || true))"
-        return 0
-    fi
-
-    machine="$(uname -m)"
-    case "$machine" in
-        x86_64) tar_subdir="x86_64" ;;
-        aarch64) tar_subdir="aarch64" ;;
-        *)
-            print_skip "1Password desktop tarball supports x86_64 and aarch64 only (this CPU is ${machine})"
-            return 0
-            ;;
-    esac
-
-    url="https://downloads.1password.com/linux/tar/stable/${tar_subdir}/1password-latest.tar.gz"
-    tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-1password.XXXXXX")" || {
-        print_error "Could not create temp directory for 1Password"
-        mark_validated_fail
-        return 1
-    }
-
+# Official apt repos publish a desktop .deb for amd64 only; arm64 apt has CLI only. RPM aarch64 is CLI-only too.
+# Use Flathub for the GUI when native 1password package is unavailable (per https://support.1password.com/install-linux/).
+install_1password_linux_app_flatpak() {
     if [ "$DRY_RUN" = "1" ]; then
-        print_info "[dry-run] Would download and install 1Password from tarball ($url)"
-        rm -rf "$tmpdir"
+        print_info "[dry-run] Would enable Flathub (user) and install com.onepassword.OnePassword"
         return 0
     fi
 
-    if ! spinner_run "Download 1Password for Linux (tarball)" dotfiles_curl -fsSL -o "$tmpdir/1password-latest.tar.gz" "$url"; then
-        print_error "Could not download 1Password tarball"
-        rm -rf "$tmpdir"
+    if ! command_exists flatpak; then
+        print_skip "1Password desktop: install Flatpak for GUI on this architecture (no native repo package); https://flathub.org/apps/com.onepassword.OnePassword"
+        return 0
+    fi
+
+    if ! spinner_run "Add Flathub remote (flatpak)" flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo; then
+        print_error "Could not add Flathub remote for Flatpak"
         mark_validated_fail
         return 1
     fi
 
-    if ! spinner_run "Extract 1Password archive" sudo tar -xf "$tmpdir/1password-latest.tar.gz" -C "$tmpdir"; then
-        print_error "Could not extract 1Password tarball"
-        rm -rf "$tmpdir"
-        mark_validated_fail
-        return 1
-    fi
-
-    shopt -s nullglob
-    cand=( "$tmpdir"/1password-* )
-    shopt -u nullglob
-    if [ "${#cand[@]}" -ne 1 ] || [ ! -d "${cand[0]}" ]; then
-        print_error "Unexpected 1Password archive layout after extract"
-        rm -rf "$tmpdir"
-        mark_validated_fail
-        return 1
-    fi
-    extracted="${cand[0]}"
-
-    if ! spinner_run "Install 1Password under /opt/1Password" sudo bash -c 'mkdir -p /opt/1Password && mv "$1"/* /opt/1Password/' _ "$extracted"; then
-        print_error "Could not install 1Password under /opt"
-        rm -rf "$tmpdir"
-        mark_validated_fail
-        return 1
-    fi
-
-    rm -rf "$tmpdir"
-
-    if ! spinner_run "Run 1Password system integration" sudo /opt/1Password/after-install.sh; then
-        print_error "1Password after-install.sh failed"
+    if ! spinner_run "Install 1Password (Flatpak)" flatpak install --user -y flathub com.onepassword.OnePassword; then
+        print_error "Could not install 1Password via Flatpak"
         mark_validated_fail
         return 1
     fi
@@ -619,7 +590,7 @@ install_1password_linux_app() {
         local apt_arch=""
         apt_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
         if [ "$apt_arch" = "amd64" ]; then
-            ensure_1password_linux_repo_apt || return 1
+            ensure_1password_linux_repo_apt amd64 || return 1
             if spinner_run "Install 1Password for Linux" sudo apt-get install -y 1password; then
                 mark_1password_linux_installed
             else
@@ -627,7 +598,7 @@ install_1password_linux_app() {
                 mark_validated_fail
             fi
         elif [ "$apt_arch" = "arm64" ]; then
-            install_1password_linux_app_via_tar || return 1
+            install_1password_linux_app_flatpak || return 1
         else
             print_skip "1Password desktop: unsupported APT architecture (${apt_arch}); install manually if needed"
             return 0
@@ -642,7 +613,7 @@ install_1password_linux_app() {
                 mark_validated_fail
             fi
         else
-            install_1password_linux_app_via_tar || return 1
+            install_1password_linux_app_flatpak || return 1
         fi
     else
         print_warn "Automatic 1Password Linux install not implemented for this distro"
@@ -730,11 +701,11 @@ install_1password_cli_linux() {
     if apt_available; then
         local apt_arch=""
         apt_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
-        if [ "$apt_arch" != "amd64" ]; then
-            print_skip "1Password CLI APT repository is amd64-only (this system is ${apt_arch}); install op manually if needed"
+        if [ "$apt_arch" != "amd64" ] && [ "$apt_arch" != "arm64" ]; then
+            print_skip "1Password CLI: no official APT builds wired for ${apt_arch}; install op manually if needed"
             return 0
         fi
-        ensure_1password_linux_repo_apt || return 1
+        ensure_1password_linux_repo_apt "$apt_arch" || return 1
 
         if spinner_run "Install 1Password CLI" sudo apt-get install -y 1password-cli; then
             mark_1password_cli_installed
