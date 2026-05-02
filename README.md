@@ -333,6 +333,7 @@ Notes:
 - **`mas`** is installed with Homebrew during **package checks** on macOS (same as `git`, `gh`, etc.); on Linux the installer **skips** `mas` because it is Mac App Store–only
 - Mac App Store installs need an Apple ID session in the App Store app; the installer cannot sign in for you. If `mas` fails for account reasons, **Next steps** tells you to open the App Store, sign in, and re-run
 - After a successful Safari app install, **Next steps** reminds you to enable the extension under Safari **Settings → Extensions**
+- **Linux:** The bundled APT repo is **amd64-only**. RPM installs use `dnf repoquery` first; if **no desktop or CLI package** exists for your CPU (for example **aarch64**), the installer **skips** with a short message instead of failing—install the GUI or `op` yourself from [1Password’s Linux downloads](https://releases.1password.com/linux/) or other channels they document.
 
 ### Alfred
 
@@ -411,7 +412,7 @@ Finder is restarted only if something actually changed and a restart is needed.
 The script can configure weekly maintenance runs.
 
 - macOS → `launchd`
-- Linux → `cron`
+- Linux → `cron` (requires **cronie**—or equivalent—so `crontab` works; on Fedora: `sudo dnf install -y cronie` and enable **`crond`** if needed)
 
 Runs weekly:
 

@@ -71,19 +71,29 @@ EOF
     fi
 }
 
+cron_schedule_line_present() {
+    local cron_text="$1"
+    local script_path="$2"
+
+    printf '%s\n' "$cron_text" | grep -Fq "$script_path" \
+        && printf '%s\n' "$cron_text" | grep -Fq "--scheduled --quiet"
+}
+
 setup_schedule_linux() {
     local script_path="${DOTFILES_DIR}/install.sh"
     local cron_line="0 0 * * 1 cd \"${DOTFILES_DIR}\" && \"${script_path}\" --scheduled --quiet >> \"${LOG_FILE}\" 2>&1"
     local current_cron=""
+    local tmpfile=""
+    local crontab_err=""
 
     if ! cron_available; then
-        print_warn "crontab not available; cannot set weekly schedule"
+        print_warn "crontab not available; cannot set weekly schedule (install cron support, e.g. sudo dnf install -y cronie on Fedora)"
         mark_validated_fail
         return 1
     fi
 
     current_cron="$(crontab -l 2>/dev/null || true)"
-    if printf '%s\n' "$current_cron" | grep -Fq "$script_path --scheduled --quiet"; then
+    if cron_schedule_line_present "$current_cron" "$script_path"; then
         print_skip "cron schedule already present"
         return 0
     fi
@@ -93,17 +103,32 @@ setup_schedule_linux() {
         return 0
     fi
 
+    tmpfile="$(mktemp "${TMPDIR:-/tmp}/dotfiles-crontab.XXXXXX")" || {
+        print_warn "Could not create temp file for cron schedule"
+        mark_validated_fail
+        return 1
+    }
+
     {
         printf '%s\n' "$current_cron" | sed '/^[[:space:]]*$/d'
         printf '%s\n' "$cron_line"
-    } | crontab -
+    } >"$tmpfile"
+
+    if ! crontab_err="$(crontab "$tmpfile" 2>&1)"; then
+        rm -f "$tmpfile"
+        print_warn "Could not install cron schedule: $crontab_err"
+        print_info "Ensure cron is installed and your user may use crontab (see /etc/cron.allow and /etc/cron.deny)"
+        mark_validated_fail
+        return 1
+    fi
+    rm -f "$tmpfile"
 
     local updated_cron=""
     updated_cron="$(crontab -l 2>/dev/null || true)"
-    if printf '%s\n' "$updated_cron" | grep -Fq "$script_path --scheduled --quiet"; then
+    if cron_schedule_line_present "$updated_cron" "$script_path"; then
         print_ok "cron schedule installed"
     else
-        print_warn "Could not install cron schedule"
+        print_warn "Could not verify cron schedule after install (unexpected crontab contents)"
         mark_validated_fail
     fi
 }

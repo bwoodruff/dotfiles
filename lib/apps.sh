@@ -538,6 +538,12 @@ install_1password_linux_app() {
     fi
 
     if apt_available; then
+        local apt_arch=""
+        apt_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
+        if [ "$apt_arch" != "amd64" ]; then
+            print_skip "1Password desktop APT repository is amd64-only (this system is ${apt_arch}); install manually if needed"
+            return 0
+        fi
         ensure_1password_linux_repo_apt || return 1
         if spinner_run "Install 1Password for Linux" sudo apt-get install -y 1password; then
             mark_1password_linux_installed
@@ -547,6 +553,10 @@ install_1password_linux_app() {
         fi
     elif dnf_available; then
         ensure_1password_linux_repo_dnf || return 1
+        if ! dnf_repo_package_available "1password"; then
+            print_skip "1Password desktop RPM not in stable repo for this CPU ($(uname -m)); see https://releases.1password.com/linux/ or Flatpak"
+            return 0
+        fi
         if spinner_run "Install 1Password for Linux" sudo dnf install -y 1password; then
             mark_1password_linux_installed
         else
@@ -637,6 +647,12 @@ install_1password_cli_linux() {
     fi
 
     if apt_available; then
+        local apt_arch=""
+        apt_arch="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
+        if [ "$apt_arch" != "amd64" ]; then
+            print_skip "1Password CLI APT repository is amd64-only (this system is ${apt_arch}); install op manually if needed"
+            return 0
+        fi
         ensure_1password_linux_repo_apt || return 1
 
         if spinner_run "Install 1Password CLI" sudo apt-get install -y 1password-cli; then
@@ -647,6 +663,10 @@ install_1password_cli_linux() {
         fi
     elif dnf_available; then
         ensure_1password_linux_repo_dnf || return 1
+        if ! dnf_repo_package_available "1password-cli"; then
+            print_skip "1Password CLI RPM not in stable repo for this CPU ($(uname -m)); install op from https://developer.1password.com/docs/cli or GitHub releases"
+            return 0
+        fi
         if spinner_run "Install 1Password CLI" sudo dnf install -y 1password-cli; then
             mark_1password_cli_installed
         else

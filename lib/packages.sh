@@ -12,8 +12,19 @@ apt_package_installed() {
     dpkg -s "$1" >/dev/null 2>&1
 }
 
+# Use the RPM DB directly — avoids `dnf list installed`, which can refresh metadata,
+# contend for the DNF lock, and stall long enough to feel hung (see neofetch removal checks).
 dnf_package_installed() {
-    dnf list installed "$1" >/dev/null 2>&1
+    rpm -q "$1" >/dev/null 2>&1
+}
+
+# True if DNF can resolve the package from configured repos (after makecache).
+# Use before `dnf install` to skip cleanly when upstream does not publish an arch (e.g. 1Password on aarch64).
+dnf_repo_package_available() {
+    local pkg="$1"
+
+    [ -n "$pkg" ] || return 1
+    dnf repoquery --quiet --available "$pkg" 2>/dev/null | head -n1 | grep -q .
 }
 
 pacman_package_installed() {
@@ -424,6 +435,10 @@ remove_neofetch_via() {
 remove_neofetch_if_installed() {
     case "$PLATFORM" in
         mac)
+            if ! command_exists neofetch && ! { homebrew_available && brew_formula_installed "neofetch"; }; then
+                print_skip "neofetch not installed"
+                return 0
+            fi
             if homebrew_available && brew_formula_installed "neofetch"; then
                 remove_neofetch_via \
                     "Remove neofetch" \
@@ -435,6 +450,10 @@ remove_neofetch_if_installed() {
             fi
             ;;
         linux)
+            if ! command_exists neofetch; then
+                print_skip "neofetch not installed (not on PATH)"
+                return 0
+            fi
             if apt_available && apt_package_installed "neofetch"; then
                 remove_neofetch_via \
                     "Remove neofetch via apt" \
