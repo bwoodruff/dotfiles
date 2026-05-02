@@ -95,6 +95,9 @@ task_environment() {
         print_info "Install script: continued after a self-update (fetched the latest from origin)"
     fi
     print_info "FORCE_BREW=$FORCE_BREW DRY_RUN=$DRY_RUN QUIET=$QUIET SCHEDULED=$SCHEDULED PULL_DOTFILES=$PULL_DOTFILES DOTFILES_AUTO_UPDATE=$DOTFILES_AUTO_UPDATE"
+    if { [ "${SCHEDULED:-0}" = "1" ] || [ ! -t 0 ]; } && ! command -v timeout >/dev/null 2>&1; then
+        print_warn "timeout(1) not in PATH; unattended runs cannot cap hung commands (install GNU coreutils timeout where needed)"
+    fi
 }
 
 task_directory_setup() {
@@ -258,6 +261,11 @@ main() {
     init_colors
     init_sections
     init_logging
+    if [ "${SCHEDULED:-0}" = "1" ] || [ ! -t 0 ]; then
+        export DEBIAN_FRONTEND=noninteractive
+        # Bound SSH-based git remotes: fail fast instead of hanging on connect (override if needed).
+        export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o ConnectTimeout=30 -o ConnectionAttempts=1}"
+    fi
     prepare_interactive_screen
     print_dotfiles_banner
     print_random_scripture_verse

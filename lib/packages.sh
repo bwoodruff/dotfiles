@@ -20,11 +20,28 @@ dnf_package_installed() {
 
 # True if DNF can resolve the package from configured repos (after makecache).
 # Use before `dnf install` to skip cleanly when upstream does not publish an arch (e.g. 1Password on aarch64).
+#
+# Important: use the same DNF state as `sudo dnf makecache` (root cache). A user `dnf repoquery`
+# can trigger another metadata refresh or block on the rpm DB lock right after makecache — that
+# showed up as a hang after "1Password RPM repository refreshed".  `-C` is cache-only.
 dnf_repo_package_available() {
     local pkg="$1"
+    local out=""
+    local -a sudocmd=(sudo)
 
     [ -n "$pkg" ] || return 1
-    dnf repoquery --quiet --available "$pkg" 2>/dev/null | head -n1 | grep -q .
+
+    if [ "${SCHEDULED:-0}" = "1" ] || [ ! -t 0 ]; then
+        sudocmd=(sudo -n)
+    fi
+
+    if command -v timeout >/dev/null 2>&1; then
+        out="$(timeout 120 "${sudocmd[@]}" dnf -C repoquery --quiet --available "$pkg" 2>/dev/null || true)"
+    else
+        out="$("${sudocmd[@]}" dnf -C repoquery --quiet --available "$pkg" 2>/dev/null || true)"
+    fi
+
+    printf '%s\n' "$out" | head -n1 | grep -q .
 }
 
 pacman_package_installed() {
@@ -157,7 +174,7 @@ install_homebrew_if_needed() {
             return 1
         fi
 
-        if spinner_run "Install Homebrew" env NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+        if spinner_run "Install Homebrew" env NONINTERACTIVE=1 /bin/bash -c "$(dotfiles_curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
             if ensure_homebrew_shellenv_configured && homebrew_available; then
                 INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1))
                 print_ok "Homebrew installed ($(command -v brew))"

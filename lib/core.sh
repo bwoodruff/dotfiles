@@ -19,6 +19,19 @@ DOTFILES_SELF_UPDATE_ANY_ORIGIN="${DOTFILES_SELF_UPDATE_ANY_ORIGIN:-0}"
 STRICT_OPTIONAL_CONFIGS="${STRICT_OPTIONAL_CONFIGS:-0}"
 SETUP_SCHEDULE="${SETUP_SCHEDULE:-1}"
 UPGRADE_PACKAGES="${UPGRADE_PACKAGES:-1}"
+# When set to a positive number, `spinner_run` wraps the child with `timeout(1)` in unattended
+# contexts (no stdin TTY or --scheduled). Prevents hung `dnf`/`git`/network work from blocking cron.
+# When unset in those contexts, defaults to 7200 seconds (2h). Set to 0 to disable the wrapper.
+# Interactive full-terminal runs have no limit unless you set this explicitly.
+DOTFILES_SPINNER_TIMEOUT_SEC="${DOTFILES_SPINNER_TIMEOUT_SEC:-}"
+
+# curl: avoid indefinite hangs on DNS/TLS/stalled transfers (override per machine if needed).
+DOTFILES_CURL_CONNECT_TIMEOUT_SEC="${DOTFILES_CURL_CONNECT_TIMEOUT_SEC:-25}"
+DOTFILES_CURL_MAX_TIME_SEC="${DOTFILES_CURL_MAX_TIME_SEC:-3600}"
+
+# git HTTP(S): abort if throughput stays below lowSpeedLimit for lowSpeedTime seconds (stalled clone/fetch/pull).
+DOTFILES_GIT_LOW_SPEED_LIMIT="${DOTFILES_GIT_LOW_SPEED_LIMIT:-1000}"
+DOTFILES_GIT_LOW_SPEED_TIME="${DOTFILES_GIT_LOW_SPEED_TIME:-120}"
 
 #######################################
 # Paths
@@ -321,6 +334,29 @@ print_random_scripture_verse() {
         fi
     fi
     printf '\n'
+}
+
+#######################################
+# curl / git network guards
+#######################################
+
+# Wrap curl with connect + total time caps (all script downloads use this).
+dotfiles_curl() {
+    command curl \
+        --connect-timeout "${DOTFILES_CURL_CONNECT_TIMEOUT_SEC:-25}" \
+        --max-time "${DOTFILES_CURL_MAX_TIME_SEC:-3600}" \
+        "$@"
+}
+
+# Run git with HTTP(S) low-speed detection (stalled / trickle transfers). No-op for purely local operations.
+dotfiles_git_http() {
+    local git_exe="$1"
+    shift
+
+    "$git_exe" \
+        -c "http.lowSpeedLimit=${DOTFILES_GIT_LOW_SPEED_LIMIT:-1000}" \
+        -c "http.lowSpeedTime=${DOTFILES_GIT_LOW_SPEED_TIME:-120}" \
+        "$@"
 }
 
 #######################################
@@ -632,6 +668,23 @@ start_section() {
     progress_advance
 }
 
+# Echo seconds for timeout(1), or empty if no cap. See DOTFILES_SPINNER_TIMEOUT_SEC.
+spinner_effective_timeout_sec() {
+    if [ "${DOTFILES_SPINNER_TIMEOUT_SEC:-}" = "0" ]; then
+        printf ''
+        return 0
+    fi
+    if [ -n "${DOTFILES_SPINNER_TIMEOUT_SEC:-}" ] && [ "${DOTFILES_SPINNER_TIMEOUT_SEC}" -gt 0 ] 2>/dev/null; then
+        printf '%s' "${DOTFILES_SPINNER_TIMEOUT_SEC}"
+        return 0
+    fi
+    if [ "${SCHEDULED:-0}" = "1" ] || [ ! -t 0 ]; then
+        printf '7200'
+        return 0
+    fi
+    printf ''
+}
+
 # Run `sudo ...` in the foreground with live output when a password may be read from the TTY.
 # Background + spinner fights sudo's prompt; unattended runs use sudo -n instead (see spinner_run).
 spinner_command_is_interactive_sudo() {
@@ -649,6 +702,8 @@ spinner_run() {
     local description="$1"
     shift
     local -a cmd=("$@")
+    local tsec=""
+    tsec="$(spinner_effective_timeout_sec)"
 
     if [ "${#cmd[@]}" -ge 1 ] && [ "${cmd[0]}" = "sudo" ]; then
         if { [ "$SCHEDULED" = "1" ] || [ ! -t 0 ]; } && [ "${cmd[1]}" != "-n" ]; then
@@ -672,10 +727,17 @@ spinner_run() {
     append_log "       $(printf '%q ' "${cmd[@]}")"
 
     if [ "$QUIET" = "1" ]; then
-        "${cmd[@]}" >>"$LOG_FILE" 2>&1
-        local status=$?
+        local status
+        if [ -n "$tsec" ] && command -v timeout >/dev/null 2>&1; then
+            timeout "$tsec" "${cmd[@]}" >>"$LOG_FILE" 2>&1
+        else
+            "${cmd[@]}" >>"$LOG_FILE" 2>&1
+        fi
+        status=$?
         if [ "$status" -eq 0 ]; then
             append_log "$TAG_OK $description"
+        elif [ "$status" -eq 124 ] && [ -n "$tsec" ]; then
+            append_log "$TAG_FAIL $description (timed out after ${tsec}s)"
         else
             append_log "$TAG_FAIL $description (exit $status)"
         fi
@@ -686,7 +748,11 @@ spinner_run() {
         printf '%s%s%s %s\n' "${C_WHITE}" "$TAG_RUN" "${C_RESET}" "$description"
         printf '\n'
         progress_suspend_for_sudo
-        "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+        if [ -n "$tsec" ] && command -v timeout >/dev/null 2>&1; then
+            timeout "$tsec" "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+        else
+            "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+        fi
         local status=${PIPESTATUS[0]}
         progress_resume_after_sudo
         printf '\r\033[K'
@@ -697,12 +763,22 @@ spinner_run() {
             return 0
         fi
 
+        if [ "$status" -eq 124 ] && [ -n "$tsec" ]; then
+            printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description (timed out after ${tsec}s)"
+            append_log "$TAG_FAIL $description (timed out after ${tsec}s)"
+            return 124
+        fi
+
         printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description"
         append_log "$TAG_FAIL $description (exit $status)"
         return "$status"
     fi
 
-    "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
+    if [ -n "$tsec" ] && command -v timeout >/dev/null 2>&1; then
+        timeout "$tsec" "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
+    else
+        "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
+    fi
     local pid=$!
     local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local i=0
@@ -724,6 +800,12 @@ spinner_run() {
         printf '%s%s%s %s\n' "${C_GREEN}" "$TAG_OK" "${C_RESET}" "$description"
         append_log "$TAG_OK $description"
         return 0
+    fi
+
+    if [ "$status" -eq 124 ] && [ -n "$tsec" ]; then
+        printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description (timed out after ${tsec}s)"
+        append_log "$TAG_FAIL $description (timed out after ${tsec}s)"
+        return 124
     fi
 
     printf '%s%s%s %s\n' "${C_RED}" "$TAG_FAIL" "${C_RESET}" "$description"

@@ -99,6 +99,12 @@ Self-update is skipped when it would be unsafe or ambiguous, including: dry-run 
 | `DOTFILES_AUTO_UPDATE` | `1` | Set to `0` to never fetch/restart for updates (same as `--no-auto-update`) |
 | `DOTFILES_UPSTREAM_GITHUB` | `bwoodruff/dotfiles` | Expected `org/repo` for `origin` (after normalizing `https` / `git@` URLs) |
 | `DOTFILES_SELF_UPDATE_ANY_ORIGIN` | `0` | Set to `1` to run self-update even when `origin` is not that GitHub path (for example a fork) |
+| `DOTFILES_SPINNER_TIMEOUT_SEC` | *(unset)* | Unattended-only cap per `spinner_run` step using `timeout(1)`; unset uses **7200** when stdin is not a TTY or `--scheduled`; **`0`** disables |
+| `DOTFILES_CURL_CONNECT_TIMEOUT_SEC` | `25` | Passed to every `curl` (via `dotfiles_curl` / inline flags) |
+| `DOTFILES_CURL_MAX_TIME_SEC` | `3600` | Max wall-clock time per `curl` transfer (raise on very slow links) |
+| `DOTFILES_GIT_LOW_SPEED_LIMIT` | `1000` | Git `http.lowSpeedLimit` (bytes/s); abort if download stays below this |
+| `DOTFILES_GIT_LOW_SPEED_TIME` | `120` | Git `http.lowSpeedTime` (seconds) for the low-speed check |
+| `GIT_SSH_COMMAND` | *(see install)* | Unattended runs default to `ssh -o BatchMode=yes -o ConnectTimeout=30 -o ConnectionAttempts=1` unless you pre-set this |
 
 ---
 
@@ -222,6 +228,8 @@ Operational notes to know before running:
   - `--scheduled` implies `--pull-dotfiles` and quiet/non-interactive behavior
   - prompt-driven actions are skipped
   - package-manager steps that need elevation rely on non-interactive sudo (`sudo -n`); ensure your environment allows that (for example NOPASSWD rules for `dnf`/`apt` where appropriate)
+  - **`DEBIAN_FRONTEND=noninteractive`** is set when stdin is not a TTY or `--scheduled` is used, to reduce apt interactive prompts
+  - **Hung subprocess guard:** when unattended (no TTY or scheduled), `spinner_run` wraps child processes with GNU **`timeout`** (default **7200s** per step) if `timeout` is on `PATH`. Override with **`DOTFILES_SPINNER_TIMEOUT_SEC`** (seconds; set to **`0`** to disable). Interactive full-terminal runs are uncapped unless you set that variable. If `timeout` is missing, the Environment task prints a warning on unattended runs
 - **Network and git**
   - unless `--no-auto-update` or `DOTFILES_AUTO_UPDATE=0`, the script may contact `git` `origin` once at the start; it does not send telemetry beyond normal `git` operations
 - **Write locations**

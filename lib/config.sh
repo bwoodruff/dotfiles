@@ -49,7 +49,7 @@ update_dotfiles_repo() {
         return 0
     fi
 
-    if spinner_run "Pull dotfiles repo" "$git_bin" -C "$DOTFILES_DIR" pull --ff-only; then
+    if spinner_run "Pull dotfiles repo" dotfiles_git_http "$git_bin" -C "$DOTFILES_DIR" pull --ff-only; then
         print_ok "Dotfiles repo pulled"
     else
         print_warn "Dotfiles pull failed"
@@ -137,7 +137,7 @@ maybe_reexec_fresh_install_script() {
         return 0
     fi
 
-    if ! "$git_bin" -C "$repo_root" fetch -q --prune origin 2>/dev/null; then
+    if ! dotfiles_git_http "$git_bin" -C "$repo_root" fetch -q --prune origin 2>/dev/null; then
         if [ "$QUIET" = "1" ]; then
             return 0
         fi
@@ -168,7 +168,7 @@ maybe_reexec_fresh_install_script() {
         return 0
     fi
 
-    if ! spinner_run "Pull latest dotfiles (self-update)" "$git_bin" -C "$repo_root" pull --ff-only; then
+    if ! spinner_run "Pull latest dotfiles (self-update)" dotfiles_git_http "$git_bin" -C "$repo_root" pull --ff-only; then
         print_warn "Could not fast-forward the dotfiles repo; continuing with the current install script on disk"
         return 0
     fi
@@ -227,32 +227,18 @@ clone_repo_if_missing() {
 
     ensure_dir "$(dirname "$target_dir")"
 
-    if [ -n "$clone_args" ]; then
-        if spinner_run "Clone $(basename "$repo_url")" bash -lc "\"$git_bin\" clone $clone_args \"$repo_url\" \"$target_dir\""; then
-            if [ -d "$target_dir/.git" ] || [ -d "$target_dir" ]; then
-                CLONED_REPOS=$((CLONED_REPOS + 1))
-                print_ok "Cloned repo: $target_dir"
-            else
-                print_error "Clone reported success but repo missing: $target_dir"
-                mark_validated_fail
-            fi
+    # shellcheck disable=SC2086
+    if spinner_run "Clone $(basename "$repo_url")" dotfiles_git_http "$git_bin" clone $clone_args "$repo_url" "$target_dir"; then
+        if [ -d "$target_dir/.git" ] || [ -d "$target_dir" ]; then
+            CLONED_REPOS=$((CLONED_REPOS + 1))
+            print_ok "Cloned repo: $target_dir"
         else
-            print_error "Could not clone $repo_url"
+            print_error "Clone reported success but repo missing: $target_dir"
             mark_validated_fail
         fi
     else
-        if spinner_run "Clone $(basename "$repo_url")" "$git_bin" clone "$repo_url" "$target_dir"; then
-            if [ -d "$target_dir/.git" ] || [ -d "$target_dir" ]; then
-                CLONED_REPOS=$((CLONED_REPOS + 1))
-                print_ok "Cloned repo: $target_dir"
-            else
-                print_error "Clone reported success but repo missing: $target_dir"
-                mark_validated_fail
-            fi
-        else
-            print_error "Could not clone $repo_url"
-            mark_validated_fail
-        fi
+        print_error "Could not clone $repo_url"
+        mark_validated_fail
     fi
 }
 
@@ -322,7 +308,7 @@ install_vim_plug() {
 
     ensure_dir "$(dirname "$plug_path")"
 
-    if spinner_run "Install vim-plug" curl -fLo "$plug_path" --create-dirs \
+    if spinner_run "Install vim-plug" dotfiles_curl -fLo "$plug_path" --create-dirs \
         https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim; then
         if verify_path_exists "$plug_path"; then
             print_ok "vim-plug installed"

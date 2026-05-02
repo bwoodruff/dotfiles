@@ -72,7 +72,7 @@ install_github_desktop() {
     tmp_dir="$(mktemp -d)"
     zip_path="${tmp_dir}/github-desktop.zip"
 
-    if ! spinner_run "Download GitHub Desktop" curl -L -o "$zip_path" "$url"; then
+    if ! spinner_run "Download GitHub Desktop" dotfiles_curl -L -o "$zip_path" "$url"; then
         print_error "Failed to download GitHub Desktop"
         rm -rf "$tmp_dir"
         mark_validated_fail
@@ -231,7 +231,7 @@ install_alacritty_macos() {
     fi
 
     print_info "Checking latest Alacritty release from GitHub"
-    latest_tag="$(curl -fsSL "$api_url" 2>>"$LOG_FILE" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+    latest_tag="$(dotfiles_curl -fsSL "$api_url" 2>>"$LOG_FILE" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
     if [ -z "$latest_tag" ]; then
         print_warn "Could not determine latest Alacritty release tag"
         mark_validated_fail
@@ -239,7 +239,7 @@ install_alacritty_macos() {
     fi
     latest_version="${latest_tag#v}"
 
-    dmg_url="$(curl -fsSL "$api_url" 2>>"$LOG_FILE" | sed -n 's/.*"browser_download_url": *"\([^"]*\.dmg\)".*/\1/p' | head -n1)"
+    dmg_url="$(dotfiles_curl -fsSL "$api_url" 2>>"$LOG_FILE" | sed -n 's/.*"browser_download_url": *"\([^"]*\.dmg\)".*/\1/p' | head -n1)"
     if [ -z "$dmg_url" ]; then
         print_warn "Could not find Alacritty DMG asset"
         mark_validated_fail
@@ -251,7 +251,7 @@ install_alacritty_macos() {
     mount_point="${tmp_dir}/mnt"
     mkdir -p "$mount_point"
 
-    if spinner_run "Download Alacritty DMG" curl -fL "$dmg_url" -o "$dmg_path"; then
+    if spinner_run "Download Alacritty DMG" dotfiles_curl -fL "$dmg_url" -o "$dmg_path"; then
         if ! verify_path_exists "$dmg_path"; then
             rm -rf "$tmp_dir"
             print_error "Downloaded Alacritty DMG not found"
@@ -450,7 +450,7 @@ ensure_1password_linux_repo_apt() {
 
     if [ ! -f "$keyring" ]; then
         if spinner_run "Install 1Password APT signing key" bash -lc \
-            "curl -fsSL https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor -o $keyring"; then
+            "curl --connect-timeout \"${DOTFILES_CURL_CONNECT_TIMEOUT_SEC:-25}\" --max-time \"${DOTFILES_CURL_MAX_TIME_SEC:-3600}\" -fsSL https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor -o \"$keyring\""; then
             :
         else
             print_error "Could not install 1Password APT signing key"
