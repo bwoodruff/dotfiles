@@ -72,6 +72,27 @@ The bootstrap script runs in phases for setup, tooling, configuration, and valid
 
 ---
 
+## ━━ Proxmark Maintenance
+
+Proxmark client and device firmware are updated together, manually. The weekly install run keeps `proxmark3` pinned in Homebrew and checks that the client can start without opening a device. A broken client produces one macOS notification until it recovers; available firmware updates do not generate notifications.
+
+Once a month, review upstream changes and update if there is a useful fix. Connect **one** Proxmark by USB to the Mac you are using, then run:
+
+```bash
+~/dotfiles/proxmark-update --check
+~/dotfiles/proxmark-update
+```
+
+The updater identifies the connected PM3 RDV4 or PM5, preserves the installed stable/HEAD channel, and backs up the current client, its runtime dependencies, and the device's main flash before changing anything. Homebrew cleanup is disabled during the update so the previous client remains available. For a PM5 update, follow the prompt to power down and remove the BWM, then reconnect the top USB-C port.
+
+The PM3 uses the Homebrew firmware built with Blueshark support. The PM5 firmware is built from the exact source revision of the Homebrew client; a second client installation is not needed. The updater restores the Homebrew pin afterward and checks both the running firmware and a readback of the flashed image. Keep the backup path printed by the updater.
+
+This command handles routine **main firmware** updates. Bootloader, PM5 FPGA, and BWM firmware changes need a separate review of the upstream instructions; it does not run the initial provisioning script or change battery settings. An incompatible client or unidentified device stops the update before any changes, so an untested PM3 or a device moved to the other Mac may need a supervised compatibility check first.
+
+The updater must be run locally and interactively. No connected device means no client or firmware update. If the firmware already matches the client and there is no newer client available, it exits without flashing.
+
+---
+
 ## ━━ Script Behavior
 
 ### Idempotent

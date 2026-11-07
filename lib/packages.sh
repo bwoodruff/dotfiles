@@ -211,6 +211,119 @@ install_homebrew_if_needed() {
     fi
 }
 
+# Keep the tested client/firmware pair until the manual Proxmark updater is run.
+ensure_proxmark_pinned() {
+    PROXMARK_PIN_FAILED=0
+    if ! homebrew_available || ! brew_formula_installed proxmark3; then
+        print_skip "Proxmark is not installed; no pin needed"
+        return 0
+    fi
+
+    local pinned=""
+    if ! pinned="$(brew list --pinned 2>>"$LOG_FILE")"; then
+        print_error "Unable to check Homebrew pins; package upgrades will be skipped"
+        mark_validated_fail
+        PROXMARK_PIN_FAILED=1
+        return 1
+    fi
+    if printf '%s\n' "$pinned" | grep -Eq '(^|/)proxmark3$'; then
+        print_skip "Proxmark is pinned for manual client/firmware updates"
+        return 0
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+        print_info "[dry-run] Would pin Proxmark for manual client/firmware updates"
+        return 0
+    fi
+    if spinner_run "Pin Proxmark for manual updates" brew pin proxmark3; then
+        if pinned="$(brew list --pinned 2>>"$LOG_FILE")" && printf '%s\n' "$pinned" | grep -Eq '(^|/)proxmark3$'; then
+            print_ok "Proxmark pinned for manual client/firmware updates"
+            return 0
+        fi
+    fi
+    print_error "Unable to pin Proxmark; package upgrades will be skipped"
+    mark_validated_fail
+    PROXMARK_PIN_FAILED=1
+    return 1
+}
+
+# Use Homebrew's existing Ruby directly; `brew ruby` enables developer mode.
+# A failed or malformed query must not look like an empty upgrade list.
+homebrew_upgradable_count() {
+    local outdated_json="" brew_repo="" ruby_bin=""
+    if ! outdated_json="$(brew outdated --json=v2 2>>"$LOG_FILE")"; then
+        return 1
+    fi
+    if ! brew_repo="$(brew --repository 2>>"$LOG_FILE")"; then
+        return 1
+    fi
+    ruby_bin="$brew_repo/Library/Homebrew/vendor/portable-ruby/current/bin/ruby"
+    if [ ! -x "$ruby_bin" ]; then
+        printf 'Homebrew portable Ruby not found: %s\n' "$ruby_bin" >>"$LOG_FILE"
+        return 1
+    fi
+    printf '%s\n' "$outdated_json" | "$ruby_bin" -rjson -e '
+        data = JSON.parse(STDIN.read)
+        unless data.is_a?(Hash) && %w[formulae casks].all? { |key| data[key].is_a?(Array) }
+          abort "Unexpected brew outdated JSON structure"
+        end
+        entries = data["formulae"] + data["casks"]
+        unless entries.all? { |entry| entry.is_a?(Hash) && [true, false].include?(entry["pinned"]) }
+          abort "Missing or invalid pin status in brew outdated JSON"
+        end
+        puts entries.count { |entry| !entry["pinned"] }
+    ' 2>>"$LOG_FILE"
+}
+
+# This only loads the client; it never opens a device or reads a card.
+check_proxmark_client() {
+    if ! homebrew_available || ! brew_formula_installed proxmark3; then
+        print_skip "Proxmark is not installed; skipping client startup check"
+        return 0
+    fi
+    # Package checks may have installed the client after the earlier pin task.
+    ensure_proxmark_pinned || return 1
+    if [ "$DRY_RUN" = "1" ]; then
+        print_info "[dry-run] Would check Proxmark client startup without a device"
+        return 0
+    fi
+
+    local brew_prefix="" client="" marker="$LOG_DIR/proxmark-client-startup.failed"
+    local healthy=0 updater="${DOTFILES_DIR:-$HOME/dotfiles}/proxmark-update"
+    if brew_prefix="$(brew --prefix 2>>"$LOG_FILE")"; then
+        client="$brew_prefix/opt/proxmark3/bin/proxmark3"
+        if [ -x "$client" ]; then
+            if command -v timeout >/dev/null 2>&1; then
+                if timeout 20 "$client" --incognito --version >>"$LOG_FILE" 2>&1; then
+                    healthy=1
+                fi
+            elif "$client" --incognito --version >>"$LOG_FILE" 2>&1; then
+                healthy=1
+            fi
+        fi
+    fi
+    if [ "$healthy" = "1" ]; then
+        rm -f "$marker"
+        print_skip "Proxmark client startup check passed"
+        return 0
+    fi
+
+    print_error "Proxmark client cannot start; run $updater. See $LOG_FILE"
+    mark_validated_fail
+    if [ ! -f "$marker" ] && command -v osascript >/dev/null 2>&1; then
+        if osascript - "$LOG_FILE" "$updater" >>"$LOG_FILE" 2>&1 <<'APPLESCRIPT'
+on run argv
+    display notification ("Proxmark client cannot start. Run " & item 2 of argv & "; see " & item 1 of argv) with title "Dotfiles maintenance"
+end run
+APPLESCRIPT
+        then
+            (umask 077; : > "$marker") || print_warn "Could not record the Proxmark startup notification"
+        else
+            print_warn "Could not send the Proxmark startup notification"
+        fi
+    fi
+    return 1
+}
+
 upgrade_packages() {
     if [ "$UPGRADE_PACKAGES" != "1" ]; then
         print_skip "Package upgrades disabled"
@@ -220,6 +333,10 @@ upgrade_packages() {
     case "$PLATFORM" in
         mac)
             if homebrew_available; then
+                if [ "${PROXMARK_PIN_FAILED:-0}" = "1" ]; then
+                    print_error "Skipping Homebrew upgrades because Proxmark could not be pinned"
+                    return 1
+                fi
                 if spinner_run "brew update" brew update; then
                     :
                 else
@@ -227,26 +344,44 @@ upgrade_packages() {
                     mark_validated_fail
                 fi
 
-                local outdated_count=0
-                outdated_count="$(brew outdated --quiet 2>/dev/null | wc -l | tr -d ' ')"
+                local outdated_count=0 remaining=0 upgrade_ok=1
+                if ! outdated_count="$(homebrew_upgradable_count)"; then
+                    print_error "Unable to read Homebrew upgrade candidates; skipping upgrades"
+                    mark_validated_fail
+                    return 1
+                fi
 
-                if [ "${outdated_count:-0}" -gt 0 ]; then
+                if [ "$outdated_count" -gt 0 ]; then
                     if spinner_run "brew upgrade" brew upgrade; then
-                        local remaining
-                        remaining="$(brew outdated --quiet 2>/dev/null | wc -l | tr -d ' ')"
-                        if [ "${remaining:-0}" -lt "$outdated_count" ]; then
-                            UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + outdated_count - remaining))
-                            print_ok "Homebrew upgrade complete (${outdated_count} candidates, ${remaining} remaining)"
-                        else
-                            print_error "brew upgrade ran but outdated package count did not decrease"
-                            mark_validated_fail
-                        fi
+                        :
                     else
+                        upgrade_ok=0
                         print_warn "brew upgrade failed"
                         mark_validated_fail
                     fi
+                    if [ "$DRY_RUN" = "1" ]; then
+                        print_info "[dry-run] Would upgrade $outdated_count unpinned Homebrew packages"
+                        return 0
+                    fi
+                    if ! remaining="$(homebrew_upgradable_count)"; then
+                        print_error "Unable to verify remaining Homebrew upgrade candidates"
+                        mark_validated_fail
+                        return 1
+                    fi
+                    if [ "$remaining" -lt "$outdated_count" ]; then
+                        UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + outdated_count - remaining))
+                    fi
+                    if [ "$upgrade_ok" = "1" ] && [ "$remaining" -eq 0 ]; then
+                        print_ok "Homebrew upgrade complete ($outdated_count packages)"
+                    else
+                        print_error "Homebrew upgrades incomplete ($outdated_count candidates, $remaining remaining)"
+                        if [ "$upgrade_ok" = "1" ]; then
+                            mark_validated_fail
+                        fi
+                        return 1
+                    fi
                 else
-                    print_skip "No Homebrew packages need upgrading"
+                    print_skip "No unpinned Homebrew packages need upgrading"
                 fi
             else
                 print_warn "Homebrew unavailable; skipping upgrades"

@@ -1,0 +1,474 @@
+#!/usr/bin/python3
+"""Manually update one USB Proxmark and its matching Homebrew client."""
+
+import argparse
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import tarfile
+import time
+
+FORMULA = "rfidresearchgroup/proxmark3/proxmark3"
+REPOSITORY = "https://github.com/RfidResearchGroup/proxmark3.git"
+ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+class Stop(Exception):
+    pass
+
+
+def run(args, *, timeout=90, env=None, cwd=None, allow_status=()):
+    try:
+        result = subprocess.run([str(a) for a in args], cwd=cwd, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Stop(str(exc)) from exc
+    output = ANSI.sub("", result.stdout)
+    if result.returncode and result.returncode not in allow_status:
+        raise Stop("{} failed:\n{}".format(Path(str(args[0])).name, output[-6000:]))
+    return output
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def read_json(path):
+    return json.loads(path.read_text())
+
+
+def usb_port(wrapper):
+    output = run([wrapper, "--list"], allow_status=(1,))
+    ports = sorted(set(re.findall(r"/dev/(?:tty|cu)\.usbmodem[\w.-]+",
+                                 output)))
+    if not ports:
+        if output.strip() and "No port found" not in output:
+            raise Stop("Unable to enumerate USB Proxmarks: " + output.strip())
+        return None
+    if len(ports) != 1:
+        raise Stop("Connect only one USB Proxmark, then run this again.")
+    return ports[0].replace("/dev/tty.", "/dev/cu.")
+
+
+def require_idle(port):
+    aliases = [port, port.replace("/dev/cu.", "/dev/tty.")]
+    result = subprocess.run(["/usr/sbin/lsof", "-t", "--", *aliases],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode == 0 or result.stdout.strip():
+        raise Stop("The USB Proxmark is in use. Close its client and try again.")
+    if result.returncode != 1:
+        raise Stop("Unable to check whether the USB port is in use.")
+
+
+def command(client, port, text, timeout=90):
+    return run([client, "--incognito", "-p", port, "-c", text], timeout=timeout)
+
+
+def identify(output):
+    models = set(re.findall(r"^\s*(?:Firmware|Device)\.+\s+(PM5|RDV4)\s*$",
+                            output, re.MULTILINE))
+    memory = re.search(r"Nonvolatile Program Memory Size:\s*(\d+)\s*KB", output)
+    unique = re.search(r"Processor Unique ID:\s*(0x[0-9A-Fa-f]+)", output)
+    if len(models) != 1 or not memory or not unique:
+        raise Stop("The installed client could not identify this device safely. "
+                   "Use a matching client to identify and back it up first; no updates were made.")
+    model = models.pop()
+    size = int(memory.group(1)) * 1024
+    if (model == "PM5" and size != 1024 * 1024) or (model == "RDV4" and size != 512 * 1024):
+        raise Stop("Unrecognized processor memory size; no updates were made.")
+    return {"model": model, "bytes": size, "id": unique.group(1).upper()}
+
+
+def matching_versions(output):
+    client = re.search(r"\[ Client \]\s*\n\s*(\S+).*?\s([0-9a-f]{9})\s*$", output, re.MULTILINE)
+    firmware = re.search(r"^\s*OS\.+\s*(\S+).*?\s([0-9a-f]{9})\s*$", output, re.MULTILINE)
+    def version(match):
+        return (match.group(1).rsplit("/", 1)[-1].removesuffix("-suspect"), match.group(2))
+    return bool(client and firmware and version(client) == version(firmware))
+
+
+def load_segments(path, device):
+    image = path.read_bytes()
+    if len(image) < 52 or image[:6] != b"\x7fELF\x01\x01":
+        raise Stop("Firmware is not a little-endian ELF32 image.")
+    header = struct.unpack_from("<16sHHIIIIIHHHHHH", image)
+    if header[2] != 40 or header[9] != 32:
+        raise Stop("Firmware is not an ARM ELF image with expected program headers.")
+    base = 0x08000000 if device["model"] == "PM5" else 0x00100000
+    first = base + (0x4000 if device["model"] == "PM5" else 0x2000)
+    segments = []
+    for index in range(header[10]):
+        position = header[5] + index * header[9]
+        if position + 32 > len(image):
+            raise Stop("Truncated ELF program headers.")
+        kind, offset, _, physical, size, _, _, _ = struct.unpack_from("<IIIIIIII", image, position)
+        if kind != 1 or not size:
+            continue
+        if physical < first or physical + size > base + device["bytes"] or offset + size > len(image):
+            raise Stop("Firmware would cross the main-firmware boundary or device memory limit.")
+        segments.append((physical - base, image[offset:offset + size]))
+    if not segments or min(offset for offset, _ in segments) != first - base:
+        raise Stop("Firmware does not start at the expected main-firmware address.")
+    ordered = sorted(segments)
+    if any(a + len(data) > b for (a, data), (b, _) in zip(ordered, ordered[1:])):
+        raise Stop("Firmware contains overlapping load segments.")
+    return segments
+
+
+def verify_readback(path, segments, size):
+    data = path.read_bytes()
+    if len(data) != size:
+        raise Stop("Processor-flash readback has an unexpected length.")
+    if any(data[offset:offset + len(expected)] != expected for offset, expected in segments):
+        raise Stop("Processor-flash readback does not match the firmware image.")
+
+
+def read_flash(client, port, destination, size):
+    # The client's filename parser accepts quoted paths; never interpolate shell input.
+    command(client, port, "hw readmem -a 0 -l {} -f {}".format(
+        size, json.dumps(str(destination.with_suffix("")))), timeout=180)
+    if not destination.exists() or destination.stat().st_size != size:
+        raise Stop("Processor-flash backup was not saved at the expected length.")
+
+
+def confirm(text):
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise Stop("Run this manually in Terminal; use --check for a read-only check.")
+    if input(text + " [y/N] ").strip().lower() not in ("y", "yes"):
+        raise Stop("Stopped at your request.")
+
+
+@contextmanager
+def uninterrupted_flash():
+    # Never terminate a flasher halfway through a flash block on Ctrl-C or SIGTERM.
+    previous = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+@contextmanager
+def install_lock():
+    cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    lock = Path(os.environ.get("LOCK_DIR", str(cache / "dotfiles-install.lock")))
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lock.mkdir(mode=0o700)
+    except FileExistsError as exc:
+        raise Stop("Another dotfiles maintenance run is active: {}".format(lock)) from exc
+    try:
+        yield
+    finally:
+        lock.rmdir()
+
+
+def snapshot(prefix, keg, folder, device, output):
+    queue, kegs = [keg], set()
+    while queue:
+        current = queue.pop().resolve()
+        if current in kegs:
+            continue
+        if not current.is_relative_to(prefix / "Cellar"):
+            raise Stop("A runtime dependency is outside Homebrew's Cellar.")
+        kegs.add(current)
+        for dep in read_json(current / "INSTALL_RECEIPT.json").get("runtime_dependencies", []):
+            target = prefix / "opt" / dep["full_name"].split("/")[-1]
+            if not target.exists():
+                raise Stop("A runtime dependency is missing: {}".format(target))
+            queue.append(target)
+    archive = folder / "client-and-runtime.tar.gz"
+    with tarfile.open(archive, "w:gz", dereference=False) as handle:
+        for current in sorted(kegs):
+            handle.add(current, arcname=str(current.relative_to(prefix)))
+    manifest = {"homebrew_prefix": str(prefix), "client_keg": str(keg),
+                "device": device, "archive_sha256": digest(archive),
+                "runtime_kegs": [str(k) for k in sorted(kegs)]}
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (folder / "before-version.txt").write_text(output)
+    shutil.copy2(keg / "INSTALL_RECEIPT.json", folder / "client-receipt.json")
+    recipe = Path(read_json(keg / "INSTALL_RECEIPT.json")["source"]["path"])
+    shutil.copy2(recipe, folder / "proxmark3.rb")
+    (folder / "RESTORE.txt").write_text(
+        "This backup contains the client and its resolved runtime kegs, plus processor flash.\n"
+        "Archive SHA-256: " + manifest["archive_sha256"] + "\n"
+        "Homebrew prefix: " + str(prefix) + "\nOriginal client keg: " + str(keg) + "\n"
+        "Before firmware writes, this updater restores the exact retained client keg on failure.\n"
+        "After firmware writes begin, keep the new client for recovery with fullimage.elf.\n"
+        "For complete rollback, review manifest.json and restore the archived Cellar kegs and\n"
+        "their opt/link records together, then restore matching device firmware. The raw main\n"
+        "flash includes the bootloader: do not pass main-before.bin to a fullimage flasher.\n"
+        "Original full recovery backups are under ~/Applications/proxmark/backups.\n"
+        "PM5 FPGA, external flash, factory EEPROM and BWM are outside this routine update.\n")
+    return manifest
+
+
+@contextmanager
+def python315_recipe(brew, env, original_copy):
+    tap = Path(run([brew, "--repository", "rfidresearchgroup/proxmark3"], env=env).strip())
+    recipe = tap / "proxmark3.rb"
+    if run(["git", "status", "--porcelain", "--", recipe.name], cwd=tap).strip():
+        raise Stop("The Proxmark Homebrew recipe has local changes; review them before updating.")
+    original = recipe.read_bytes()
+    original_copy.write_bytes(original)
+    text = original.decode()
+    old = '  depends_on "python@3.14" => :build\n'
+    anchor = '      BREW_PREFIX=#{HOMEBREW_PREFIX}\n'
+    changed = old in text
+    if changed:
+        if text.count(old) != 1 or text.count(anchor) != 1 or "PYTHON3_PKGCONFIG=" in text:
+            raise Stop("The upstream Python recipe changed; review its Python 3.15 support first.")
+        text = text.replace(old, '  depends_on "python@3.15"\n').replace(
+            anchor, anchor + '      PYTHON3_PKGCONFIG=python-3.15\n')
+    elif 'depends_on "python@3.15"' not in text or "PYTHON3_PKGCONFIG=python-3.15" not in text:
+        raise Stop("The upstream Python dependency changed; review it before updating.")
+    replacement = text.encode()
+    try:
+        if changed:
+            recipe.write_bytes(replacement)
+        yield
+    finally:
+        if changed:
+            if recipe.read_bytes() != replacement:
+                raise Stop("The Homebrew recipe changed during this run; review it against {}.".format(original_copy))
+            recipe.write_bytes(original)
+
+
+def restore_client(brew, keg, env):
+    # Homebrew's CLI selects a version; the Keg API restores this exact retained keg.
+    ruby = ('require "keg"; old=Keg.new(Pathname.new(ARGV.fetch(0))); old.lock do; '
+            'record=old.linked_keg_record; '
+            'Keg.new(record.realpath).unlink if record.directory? && !old.linked?; '
+            'old.link unless old.linked?; old.optlink unless old.optlinked?; end')
+    run([brew, "ruby", "-e", ruby, keg], env=dict(env, HOMEBREW_DEV_CMD_RUN="1"))
+
+
+def firmware_image(brew, prefix, keg, receipt, state, env, folder):
+    if receipt["source"]["spec"] != "head":
+        raise Stop("PM5 needs a supported HEAD client; review the selected channel before flashing.")
+    revision = receipt["source"].get("scm_revision", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise Stop("Homebrew did not record an exact client source revision.")
+    source = state / "builds" / revision
+    if not source.exists():
+        source.parent.mkdir(parents=True, exist_ok=True)
+        cache = Path(run([brew, "--cache"], env=env).strip()) / "proxmark3--git"
+        origin = str(cache) if cache.exists() else REPOSITORY
+        run(["git", "clone", "--no-checkout", origin, source], timeout=600, env=env)
+    if run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=source).strip():
+        raise Stop("The saved PM5 firmware source has edits; review them before rebuilding.")
+    run(["git", "checkout", "--detach", revision], cwd=source, env=env)
+    if run(["git", "rev-parse", "HEAD"], cwd=source).strip() != revision:
+        raise Stop("PM5 firmware checkout does not match the client revision.")
+    print("Building PM5 main firmware from the installed client's exact revision…", flush=True)
+    build = run(["make", "-j{}".format(min(os.cpu_count() or 2, 8)), "fullimage",
+                 "PLATFORM=PM5", "PLATFORM_EXTRAS=BWM", "BREW_PREFIX={}".format(prefix)],
+                cwd=source, env=env, timeout=1800)
+    (folder / "firmware-build.txt").write_text(build)
+    destination = folder / "fullimage.elf"
+    shutil.copy2(source / "armsrc" / "obj" / "fullimage.elf", destination)
+    return destination
+
+
+def perform(args, brew, prefix, wrapper, port, keg, before, device, env):
+    receipt = read_json(keg / "INSTALL_RECEIPT.json")
+    if "--with-blueshark" not in receipt.get("used_options", []):
+        raise Stop("This client was not built with Blueshark support; review its installation first.")
+    if any(flag in receipt.get("used_options", []) for flag in ("--with-generic", "--with-small")):
+        raise Stop("This updater requires the normal RDV4/Blueshark Homebrew build configuration.")
+    if not args.check:
+        print("Refreshing Homebrew's update information…", flush=True)
+        run([brew, "update"], timeout=600, env=env)
+    if args.check:
+        if receipt["source"]["spec"] == "head":
+            remote = run(["git", "ls-remote", REPOSITORY, "HEAD"], timeout=60).split()
+            if len(remote) != 2 or not re.fullmatch(r"[0-9a-f]{40}", remote[0]):
+                raise Stop("Unable to identify the current upstream HEAD revision.")
+            upgrade = remote[0] != receipt["source"].get("scm_revision")
+        else:
+            recipe = Path(receipt["source"]["path"]).read_text()
+            stable = re.search(r'/tags/v([0-9.]+)\.tar\.gz', recipe)
+            revision = re.search(r'^\s*revision\s+(\d+)\s*$', recipe, re.MULTILINE)
+            if not stable:
+                raise Stop("Unable to identify the stable version in the cached Homebrew recipe.")
+            candidate = stable.group(1) + ("_" + revision.group(1) if revision else "")
+            upgrade = candidate != keg.name
+            print("Stable availability uses the cached Homebrew recipe; a normal run refreshes it.")
+    else:
+        outdated = json.loads(run([brew, "outdated", "--json=v2", "--fetch-HEAD", FORMULA],
+                                  timeout=600, env=env))
+        if not isinstance(outdated.get("formulae"), list):
+            raise Stop("Homebrew returned an unrecognized update report.")
+        upgrade = bool(outdated["formulae"])
+    matches = matching_versions(before)
+    print("Connected: {}. Client: {}. Firmware: {}.".format(
+        device["model"], keg.name, "matches client" if matches else "needs synchronization"))
+    if not upgrade and matches:
+        print("The client and main firmware are current. No update is needed.")
+        return
+    print("Plan: {} the client and synchronize {} main firmware.".format(
+        "update" if upgrade else "keep", device["model"]))
+    print("Bootloader, FPGA and BWM firmware require a separate review when their updates are relevant.")
+    if args.check:
+        return
+    confirm("Back up this setup and proceed with the update?")
+    state = Path.home() / "Applications" / "proxmark"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    folder = state / "backups" / (stamp + "-" + device["model"] + "-manual-update")
+    folder.mkdir(parents=True, mode=0o700)
+    print("Recovery backup: {}".format(folder), flush=True)
+    print("Backing up the client, runtime libraries and processor flash…", flush=True)
+    manifest = snapshot(prefix, keg, folder, device, before)
+    old_client = keg / "bin" / "proxmark3"
+    read_flash(old_client, port, folder / "main-before.bin", device["bytes"])
+    read_flash(old_client, port, folder / "main-before-verify.bin", device["bytes"])
+    if digest(folder / "main-before.bin") != digest(folder / "main-before-verify.bin"):
+        raise Stop("The two independent processor-flash backups differ; nothing was updated.")
+    manifest["main_before_sha256"] = digest(folder / "main-before.bin")
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    flash_started, host_changed = False, False
+    try:
+        if upgrade:
+            run([brew, "unpin", FORMULA], env=env)
+            with python315_recipe(brew, env, folder / "proxmark3.rb"):
+                print("Updating the Homebrew client…", flush=True)
+                host_changed = True
+                log = run([brew, "upgrade", "--fetch-HEAD", "--no-ask", FORMULA], timeout=3600, env=env)
+                (folder / "homebrew-update.txt").write_text(log)
+        active = (prefix / "opt" / "proxmark3").resolve()
+        client = active / "bin" / "proxmark3"
+        run([client, "--incognito", "--version"], env=env)
+        receipt = read_json(active / "INSTALL_RECEIPT.json")
+        if device["model"] == "PM5":
+            image = firmware_image(brew, prefix, active, receipt, state, env, folder)
+        else:
+            flags = receipt.get("used_options", [])
+            if "--with-blueshark" not in flags or any(flag in flags for flag in ("--with-generic", "--with-small")):
+                raise Stop("Updated client has an unexpected RDV4/Blueshark build configuration.")
+            image = folder / "fullimage.elf"
+            shutil.copy2(active / "share" / "proxmark3" / "firmware" / "fullimage.elf", image)
+        segments = load_segments(image, device)
+        manifest.update({"updated_client_keg": str(active), "source": receipt["source"],
+                         "fullimage_sha256": digest(image), "flash_started": False})
+        (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        if device["model"] == "PM5":
+            confirm("Power off the PM5, unplug USB, detach the BWM with its battery still attached, "
+                    "then reconnect top USB normally. Is the BWM detached and USB reconnected?")
+        else:
+            confirm("Keep this RDV4 connected by USB. Ready to write its main firmware?")
+        port = usb_port(wrapper)
+        if not port:
+            raise Stop("Reconnect the same Proxmark by USB and run the updater again.")
+        require_idle(port)
+        # The old client still identifies the old firmware, even after Homebrew upgrades.
+        again = identify(command(old_client, port, "hw version"))
+        if again != device:
+            raise Stop("The connected device changed; refusing to flash.")
+        flash_started = True
+        manifest["flash_started"] = True
+        (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        print("Writing main firmware; keep USB connected…", flush=True)
+        with uninterrupted_flash():
+            log = run([client, "--incognito", "-p", port, "--flash", "--image", image], timeout=None)
+        (folder / "flash.txt").write_text(log)
+        port = None
+        for _ in range(20):
+            time.sleep(1)
+            port = usb_port(wrapper)
+            if port:
+                break
+        if not port:
+            raise Stop("The device did not return over USB after flashing.")
+        after = command(client, port, "hw version")
+        if identify(after) != device or not matching_versions(after):
+            raise Stop("Post-update device identity or firmware version did not match.")
+        (folder / "after-version.txt").write_text(after)
+        read_flash(client, port, folder / "main-after.bin", device["bytes"])
+        verify_readback(folder / "main-after.bin", segments, device["bytes"])
+        boot_end = min(offset for offset, _ in segments)
+        if (folder / "main-before.bin").read_bytes()[:boot_end] != (folder / "main-after.bin").read_bytes()[:boot_end]:
+            raise Stop("Bootloader bytes changed unexpectedly; retain the recovery backup.")
+        manifest["verified"] = True
+        (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        print("Client and main firmware verified. Backup: {}".format(folder))
+        if device["model"] == "PM5":
+            print("Power off and unplug USB before reinstalling the BWM.")
+    except BaseException:
+        if host_changed and not flash_started:
+            try:
+                restore_client(brew, keg, env)
+                run([old_client, "--incognito", "--version"], env=env)
+                print("Restored the previous client; device firmware was not changed.", file=sys.stderr)
+            except Stop:
+                print("Previous-client recovery needs review. Backup: {}".format(folder), file=sys.stderr)
+                raise
+        elif flash_started:
+            print("Kept the new client for firmware recovery. Backup and exact image: {}. "
+                  "Use boot mode if needed; do not restore only the old client.".format(folder), file=sys.stderr)
+        raise
+    finally:
+        run([brew, "pin", FORMULA], env=env)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="identify the device and report updates without installing or flashing")
+    args = parser.parse_args(argv)
+    os.umask(0o077)
+    if sys.platform != "darwin":
+        raise Stop("This updater supports macOS Homebrew installations.")
+    brew = shutil.which("brew")
+    if not brew:
+        raise Stop("Homebrew is not available in PATH.")
+    env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_INSTALL_CLEANUP="1",
+               HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK="1")
+    prefix = Path(run([brew, "--prefix"], env=env).strip())
+    keg_link, wrapper = prefix / "opt" / "proxmark3", prefix / "bin" / "pm3"
+    if not keg_link.exists() or not wrapper.exists():
+        raise Stop("Install the supported Proxmark Homebrew client first.")
+    keg = keg_link.resolve()
+    port = usb_port(wrapper)
+    if not port:
+        print("No USB Proxmark is connected. Nothing was updated.")
+        return 0
+    require_idle(port)
+    before = command(keg / "bin" / "proxmark3", port, "hw version")
+    device = identify(before)
+    if args.check:
+        perform(args, brew, prefix, wrapper, port, keg, before, device, env)
+    else:
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise Stop("Run this manually in Terminal; use --check for a read-only check.")
+        with install_lock():
+            if keg_link.resolve() != keg or usb_port(wrapper) != port:
+                raise Stop("The client or USB device changed during startup; run this again.")
+            require_idle(port)
+            before = command(keg / "bin" / "proxmark3", port, "hw version")
+            if identify(before) != device:
+                raise Stop("The connected device changed during startup; run this again.")
+            perform(args, brew, prefix, wrapper, port, keg, before, device, env)
+    return 0
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    try:
+        sys.exit(main())
+    except (Stop, KeyboardInterrupt, ValueError, KeyError, OSError) as exc:
+        print("Stopped: {}".format(exc or "interrupted"), file=sys.stderr)
+        sys.exit(1)
