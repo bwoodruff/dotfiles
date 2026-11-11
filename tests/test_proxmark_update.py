@@ -3,6 +3,8 @@
 from contextlib import ExitStack, nullcontext
 import importlib.machinery
 import importlib.util
+import json
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -25,6 +27,11 @@ VERSION = """ [ Client ]
   --= Nonvolatile Program Memory Size: 1024 KB, Used: 374795 bytes (36%)
   --= Processor Unique ID: 0x123456789ABC
 """
+
+
+OUTDATED_REPORT = json.dumps({"formulae": [{"name": updater.FORMULA,
+    "installed_versions": ["4.23346", "HEAD-9928112"], "current_version": "HEAD-88e84f9",
+    "pinned": True, "pinned_version": "HEAD-9928112"}], "casks": []})
 
 
 def elf(address=0x08004000, payload=b"firmware"):
@@ -74,6 +81,86 @@ class FirmwareGuards(unittest.TestCase):
                 updater.usb_port("pm3")
 
 
+class FirmwareBuild(unittest.TestCase):
+    def test_fresh_checkout_builds_exact_revision_despite_old_partial_clone(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "proxmark3--git"
+            repo.mkdir()
+            updater.run(["git", "init", "-q"], cwd=repo)
+            commit = ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                      "-c", "commit.gpgsign=false", "commit", "-qm"]
+            makefile = repo / "Makefile"
+            makefile.write_text("fullimage:\n\tmkdir -p armsrc/obj\n\tprintf first > armsrc/obj/fullimage.elf\n")
+            updater.run(["git", "add", "Makefile"], cwd=repo)
+            updater.run(commit + ["first"], cwd=repo)
+            revision = updater.run(["git", "rev-parse", "HEAD"], cwd=repo).strip()
+            makefile.write_text(makefile.read_text().replace("first", "second"))
+            updater.run(["git", "add", "Makefile"], cwd=repo)
+            updater.run(commit + ["second"], cwd=repo)
+            state = root / "state"
+            builds = state / "builds"
+            builds.mkdir(parents=True)
+            stale = builds / revision
+            updater.run(["git", "clone", "--no-checkout", repo, stale])
+            before = updater.run(["git", "status", "--porcelain"], cwd=stale)
+            self.assertIn("D  Makefile", before)
+            folder = root / "backup"
+            folder.mkdir()
+            real_run = updater.run
+            def local_run(args, **kwargs):
+                if args == ["brew", "--cache"]:
+                    return str(root)
+                return real_run(args, **kwargs)
+            receipt = {"source": {"spec": "head", "scm_revision": revision}}
+            with patch.object(updater, "run", side_effect=local_run):
+                image = updater.firmware_image("brew", root, receipt, state, os.environ, folder)
+            self.assertEqual(image.read_bytes(), b"first")
+            self.assertEqual(list(builds.iterdir()), [stale])
+            self.assertEqual(updater.run(["git", "status", "--porcelain"], cwd=stale), before)
+
+
+class BackupRotation(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.device = updater.identify(VERSION)
+
+    def backup(self, day, *, device=None, verified=True):
+        path = self.root / ("202611{:02d}T120000Z-PM5-manual-update".format(day))
+        path.mkdir()
+        archive = path / "client-and-runtime.tar.gz"
+        firmware = path / "main-before.bin"
+        archive.write_bytes(b"client archive")
+        firmware.write_bytes(b"main flash")
+        (path / "manifest.json").write_text(json.dumps({
+            "device": self.device if device is None else device, "verified": verified,
+            "archive_sha256": updater.digest(archive), "main_before_sha256": updater.digest(firmware),
+        }))
+        return path
+
+    def test_keeps_two_verified_backups_only_for_this_device(self):
+        oldest, previous, current = (self.backup(day) for day in (1, 2, 3))
+        unrelated = self.backup(4, device=dict(self.device, id="0X456"))
+        failed = self.backup(5, verified=False)
+        factory = self.root / "20261107T130516Z-PM5"
+        factory.mkdir()
+        linked = self.root / "20261106T120000Z-PM5-manual-update"
+        linked.symlink_to(previous, target_is_directory=True)
+        updater.rotate_backups(current, self.device)
+        self.assertFalse(oldest.exists())
+        for retained in (previous, current, unrelated, failed, factory, linked):
+            self.assertTrue(retained.exists(), retained)
+
+    def test_corrupted_retained_backup_prevents_removal(self):
+        oldest, previous, current = (self.backup(day) for day in (1, 2, 3))
+        (previous / "client-and-runtime.tar.gz").write_bytes(b"corrupt")
+        with self.assertRaisesRegex(updater.Stop, "checksum"):
+            updater.rotate_backups(current, self.device)
+        self.assertTrue(oldest.exists())
+
+
 class TransactionGuards(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -114,14 +201,63 @@ class TransactionGuards(unittest.TestCase):
                 self.perform(False)
         run.assert_not_called()
 
-    def transaction_failure(self, fail_during_flash):
+    def test_named_outdated_status_one_reaches_confirmation(self):
+        self.receipt["source"]["spec"] = "stable"
+        def brew(args, **kwargs):
+            status, output = {
+                "update": (0, ""),
+                "outdated": (1, OUTDATED_REPORT),
+            }[args[1]]
+            return updater.subprocess.CompletedProcess(args, status, output)
+
+        with patch.object(updater, "read_json", return_value=self.receipt), \
+                patch.object(updater.subprocess, "run", side_effect=brew), \
+                patch.object(updater, "confirm", side_effect=updater.Stop("declined")) as confirm, \
+                patch.object(updater, "snapshot") as snapshot:
+            with self.assertRaisesRegex(updater.Stop, "declined"):
+                self.perform(False)
+        confirm.assert_called_once()
+        snapshot.assert_not_called()
+
+    def test_failed_or_unexpected_outdated_report_stops_before_confirmation(self):
+        self.receipt["source"]["spec"] = "stable"
+        for status, report in [(1, "Error: tap unavailable"),
+                               (1, '{"formulae":[{"name":"other"}],"casks":[]}'),
+                               (2, OUTDATED_REPORT)]:
+            with self.subTest(status=status, report=report):
+                def brew(args, **kwargs):
+                    return updater.subprocess.CompletedProcess(
+                        args, status if args[1] == "outdated" else 0, report)
+                with patch.object(updater, "read_json", return_value=self.receipt), \
+                        patch.object(updater.subprocess, "run", side_effect=brew), \
+                        patch.object(updater, "confirm") as confirm:
+                    with self.assertRaises(updater.Stop):
+                        self.perform(False)
+                confirm.assert_not_called()
+
+    def transaction_failure(self, fail_during_flash, reuse=False):
         calls = []
+        active = self.prefix / "opt" / "proxmark3"
+        newer = self.keg.with_name("HEAD-bbbbbbb")
+        next_receipt = dict(self.receipt, source={"spec": "head", "scm_revision": "b" * 40})
+        if reuse:
+            (newer / "bin").mkdir(parents=True)
+            (newer / "bin" / "proxmark3").touch()
+            (newer / "INSTALL_RECEIPT.json").write_text(json.dumps(next_receipt))
+
+        def activate(brew, selected, env):
+            active.unlink()
+            active.symlink_to(selected)
+
+        read_json = updater.read_json
         image = self.home / "image.elf"
         image.write_bytes(elf())
         def run(args, **kwargs):
             calls.append([str(arg) for arg in args])
-            if "outdated" in args:
-                return '{"formulae":[{"name":"proxmark3"}]}'
+            if "ls-remote" in args:
+                return "b" * 40 + "\tHEAD\n"
+            if "upgrade" in args:
+                activate("brew", newer, {})
             if "--flash" in args:
                 raise updater.Stop("simulated flasher failure")
             return ""
@@ -129,7 +265,8 @@ class TransactionGuards(unittest.TestCase):
             destination.write_bytes(b"\0" * size)
         with ExitStack() as stack:
             stack.enter_context(patch.object(updater.Path, "home", return_value=self.home))
-            stack.enter_context(patch.object(updater, "read_json", return_value=self.receipt))
+            stack.enter_context(patch.object(updater, "read_json", side_effect=lambda path:
+                self.receipt if path.parent == self.keg else read_json(path) if reuse else next_receipt))
             stack.enter_context(patch.object(updater, "run", side_effect=run))
             stack.enter_context(patch.object(updater, "confirm"))
             stack.enter_context(patch.object(updater, "snapshot", return_value={}))
@@ -141,15 +278,22 @@ class TransactionGuards(unittest.TestCase):
             stack.enter_context(patch.object(updater, "require_idle"))
             current = VERSION if fail_during_flash else VERSION.replace("0x123456789ABC", "0xDEADBEEF")
             stack.enter_context(patch.object(updater, "command", return_value=current))
-            restore = stack.enter_context(patch.object(updater, "restore_client"))
+            rotate = stack.enter_context(patch.object(updater, "rotate_backups"))
+            link = stack.enter_context(patch.object(updater, "link_client", side_effect=activate))
             with self.assertRaises(updater.Stop):
                 self.perform(False)
-            self.assertEqual(restore.call_count, 0 if fail_during_flash else 1)
+            expected = ([newer] if reuse else []) + ([] if fail_during_flash else [self.keg])
+            self.assertEqual([call.args[1] for call in link.call_args_list], expected)
+            self.assertEqual(any("upgrade" in call for call in calls), not reuse)
+        rotate.assert_not_called()
         self.assertEqual(calls[-1], ["brew", "pin", updater.FORMULA])
         self.assertEqual(any("--flash" in call for call in calls), fail_during_flash)
 
     def test_changed_device_prevents_flash_and_restores_previous_client(self):
         self.transaction_failure(False)
+
+    def test_retry_reuses_already_installed_exact_head_and_restores_on_failure(self):
+        self.transaction_failure(False, reuse=True)
 
     def test_failed_flash_keeps_new_client_and_repins_it(self):
         self.transaction_failure(True)

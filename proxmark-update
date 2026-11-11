@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 
 FORMULA = "rfidresearchgroup/proxmark3/proxmark3"
@@ -218,6 +219,39 @@ def snapshot(prefix, keg, folder, device, output):
     return manifest
 
 
+def rotate_backups(folder, device):
+    """Keep two successful update snapshots for this device in the local backup directory."""
+    pattern = re.compile(r"[0-9]{8}T[0-9]{6}Z-" + re.escape(device["model"]) + r"-manual-update")
+    verified = {}
+    for candidate in folder.parent.iterdir():
+        if not pattern.fullmatch(candidate.name) or candidate.is_symlink() or not candidate.is_dir():
+            continue
+        metadata = candidate / "manifest.json"
+        if metadata.is_symlink() or not metadata.is_file():
+            continue
+        try:
+            manifest = read_json(metadata)
+        except (OSError, ValueError):
+            continue
+        if isinstance(manifest, dict) and manifest.get("verified") is True and manifest.get("device") == device:
+            verified[candidate] = manifest
+    if len(verified) <= 2:
+        return
+    if folder not in verified:
+        raise Stop("The new backup is not marked verified.")
+    previous = sorted(verified.keys() - {folder}, reverse=True)
+    for keep in (folder, previous[0]):
+        for filename, checksum in (("client-and-runtime.tar.gz", "archive_sha256"),
+                                   ("main-before.bin", "main_before_sha256")):
+            artifact = keep / filename
+            if (artifact.is_symlink() or not artifact.is_file()
+                    or digest(artifact) != verified[keep].get(checksum)):
+                raise Stop("Backup checksum check failed: {}".format(artifact))
+    for older in previous[1:]:
+        shutil.rmtree(older)
+        print("Removed older update backup: {}".format(older))
+
+
 @contextmanager
 def python315_recipe(brew, env, original_copy):
     tap = Path(run([brew, "--repository", "rfidresearchgroup/proxmark3"], env=env).strip())
@@ -249,8 +283,8 @@ def python315_recipe(brew, env, original_copy):
             recipe.write_bytes(original)
 
 
-def restore_client(brew, keg, env):
-    # Homebrew's CLI selects a version; the Keg API restores this exact retained keg.
+def link_client(brew, keg, env):
+    # Homebrew's Keg API selects this exact retained version.
     ruby = ('require "keg"; old=Keg.new(Pathname.new(ARGV.fetch(0))); old.lock do; '
             'record=old.linked_keg_record; '
             'Keg.new(record.realpath).unlink if record.directory? && !old.linked?; '
@@ -258,30 +292,53 @@ def restore_client(brew, keg, env):
     run([brew, "ruby", "-e", ruby, keg], env=dict(env, HOMEBREW_DEV_CMD_RUN="1"))
 
 
-def firmware_image(brew, prefix, keg, receipt, state, env, folder):
+def cached_head(keg, revision, options):
+    for candidate in sorted(keg.parent.glob("HEAD-*")):
+        if candidate == keg or candidate.is_symlink() or not (candidate / "bin/proxmark3").is_file():
+            continue
+        try:
+            receipt = read_json(candidate / "INSTALL_RECEIPT.json")
+            source = receipt["source"]
+            if (source["spec"] == "head" and source["scm_revision"] == revision
+                    and set(receipt["used_options"]) == set(options)):
+                return candidate
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+    return None
+
+
+def firmware_image(brew, prefix, receipt, state, env, folder):
     if receipt["source"]["spec"] != "head":
         raise Stop("PM5 needs a supported HEAD client; review the selected channel before flashing.")
     revision = receipt["source"].get("scm_revision", "")
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise Stop("Homebrew did not record an exact client source revision.")
-    source = state / "builds" / revision
-    if not source.exists():
-        source.parent.mkdir(parents=True, exist_ok=True)
-        cache = Path(run([brew, "--cache"], env=env).strip()) / "proxmark3--git"
-        origin = str(cache) if cache.exists() else REPOSITORY
+    builds = state / "builds"
+    builds.mkdir(parents=True, exist_ok=True)
+    cache = Path(run([brew, "--cache"], env=env).strip()) / "proxmark3--git"
+    origin = REPOSITORY
+    if cache.is_dir():
+        try:
+            run(["git", "cat-file", "-e", revision + "^{commit}"], cwd=cache, env=env)
+        except Stop:
+            pass  # The cache is optional; fetch from the upstream repository instead.
+        else:
+            origin = str(cache)
+    with tempfile.TemporaryDirectory(prefix="pm5-", dir=builds) as work:
+        source = Path(work)
         run(["git", "clone", "--no-checkout", origin, source], timeout=600, env=env)
-    if run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=source).strip():
-        raise Stop("The saved PM5 firmware source has edits; review them before rebuilding.")
-    run(["git", "checkout", "--detach", revision], cwd=source, env=env)
-    if run(["git", "rev-parse", "HEAD"], cwd=source).strip() != revision:
-        raise Stop("PM5 firmware checkout does not match the client revision.")
-    print("Building PM5 main firmware from the installed client's exact revision…", flush=True)
-    build = run(["make", "-j{}".format(min(os.cpu_count() or 2, 8)), "fullimage",
-                 "PLATFORM=PM5", "PLATFORM_EXTRAS=BWM", "BREW_PREFIX={}".format(prefix)],
-                cwd=source, env=env, timeout=1800)
-    (folder / "firmware-build.txt").write_text(build)
-    destination = folder / "fullimage.elf"
-    shutil.copy2(source / "armsrc" / "obj" / "fullimage.elf", destination)
+        run(["git", "checkout", "--detach", revision], cwd=source, env=env)
+        if run(["git", "rev-parse", "HEAD"], cwd=source, env=env).strip() != revision:
+            raise Stop("PM5 firmware checkout does not match the client revision.")
+        if run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=source, env=env).strip():
+            raise Stop("The fresh PM5 firmware checkout is not clean.")
+        print("Building PM5 main firmware from the installed client's exact revision…", flush=True)
+        build = run(["make", "-j{}".format(min(os.cpu_count() or 2, 8)), "fullimage",
+                     "PLATFORM=PM5", "PLATFORM_EXTRAS=BWM", "BREW_PREFIX={}".format(prefix)],
+                    cwd=source, env=env, timeout=1800)
+        (folder / "firmware-build.txt").write_text(build)
+        destination = folder / "fullimage.elf"
+        shutil.copy2(source / "armsrc" / "obj" / "fullimage.elf", destination)
     return destination
 
 
@@ -294,27 +351,38 @@ def perform(args, brew, prefix, wrapper, port, keg, before, device, env):
     if not args.check:
         print("Refreshing Homebrew's update information…", flush=True)
         run([brew, "update"], timeout=600, env=env)
-    if args.check:
-        if receipt["source"]["spec"] == "head":
-            remote = run(["git", "ls-remote", REPOSITORY, "HEAD"], timeout=60).split()
-            if len(remote) != 2 or not re.fullmatch(r"[0-9a-f]{40}", remote[0]):
-                raise Stop("Unable to identify the current upstream HEAD revision.")
-            upgrade = remote[0] != receipt["source"].get("scm_revision")
-        else:
-            recipe = Path(receipt["source"]["path"]).read_text()
-            stable = re.search(r'/tags/v([0-9.]+)\.tar\.gz', recipe)
-            revision = re.search(r'^\s*revision\s+(\d+)\s*$', recipe, re.MULTILINE)
-            if not stable:
-                raise Stop("Unable to identify the stable version in the cached Homebrew recipe.")
-            candidate = stable.group(1) + ("_" + revision.group(1) if revision else "")
-            upgrade = candidate != keg.name
-            print("Stable availability uses the cached Homebrew recipe; a normal run refreshes it.")
+    reuse = None
+    if receipt["source"]["spec"] == "head":
+        # Homebrew can report no outdated kegs after rollback if the newest one
+        # is still installed. Compare upstream to the active client instead.
+        remote = run(["git", "ls-remote", REPOSITORY, "HEAD"], timeout=60).split()
+        if len(remote) != 2 or remote[1] != "HEAD" or not re.fullmatch(r"[0-9a-f]{40}", remote[0]):
+            raise Stop("Unable to identify the current upstream HEAD revision.")
+        upgrade = remote[0] != receipt["source"].get("scm_revision")
+        if upgrade and not args.check:
+            reuse = cached_head(keg, remote[0], receipt["used_options"])
+    elif args.check:
+        recipe = Path(receipt["source"]["path"]).read_text()
+        stable = re.search(r'/tags/v([0-9.]+)\.tar\.gz', recipe)
+        revision = re.search(r'^\s*revision\s+(\d+)\s*$', recipe, re.MULTILINE)
+        if not stable:
+            raise Stop("Unable to identify the stable version in the cached Homebrew recipe.")
+        candidate = stable.group(1) + ("_" + revision.group(1) if revision else "")
+        upgrade = candidate != keg.name
+        print("Stable availability uses the cached Homebrew recipe; a normal run refreshes it.")
     else:
-        outdated = json.loads(run([brew, "outdated", "--json=v2", "--fetch-HEAD", FORMULA],
-                                  timeout=600, env=env))
-        if not isinstance(outdated.get("formulae"), list):
+        # Homebrew returns 1 when a named formula is outdated, even with JSON output.
+        report = run([brew, "outdated", "--json=v2", "--fetch-HEAD", FORMULA],
+                     timeout=600, env=env, allow_status=(1,))
+        try:
+            outdated = json.loads(report)
+        except json.JSONDecodeError as exc:
+            raise Stop("Homebrew did not return a valid update report:\n" + report[-6000:]) from exc
+        formulae = outdated.get("formulae") if isinstance(outdated, dict) else None
+        if (not isinstance(formulae, list) or outdated.get("casks") != [] or len(formulae) > 1
+                or any(not isinstance(entry, dict) or entry.get("name") != FORMULA for entry in formulae)):
             raise Stop("Homebrew returned an unrecognized update report.")
-        upgrade = bool(outdated["formulae"])
+        upgrade = bool(formulae)
     matches = matching_versions(before)
     print("Connected: {}. Client: {}. Firmware: {}.".format(
         device["model"], keg.name, "matches client" if matches else "needs synchronization"))
@@ -345,17 +413,24 @@ def perform(args, brew, prefix, wrapper, port, keg, before, device, env):
     try:
         if upgrade:
             run([brew, "unpin", FORMULA], env=env)
-            with python315_recipe(brew, env, folder / "proxmark3.rb"):
-                print("Updating the Homebrew client…", flush=True)
+            if reuse:
+                print("Using the already installed Homebrew client: {}.".format(reuse.name), flush=True)
                 host_changed = True
-                log = run([brew, "upgrade", "--fetch-HEAD", "--no-ask", FORMULA], timeout=3600, env=env)
-                (folder / "homebrew-update.txt").write_text(log)
+                link_client(brew, reuse, env)
+            else:
+                with python315_recipe(brew, env, folder / "proxmark3.rb"):
+                    print("Updating the Homebrew client…", flush=True)
+                    host_changed = True
+                    log = run([brew, "upgrade", "--fetch-HEAD", "--no-ask", FORMULA], timeout=3600, env=env)
+                    (folder / "homebrew-update.txt").write_text(log)
         active = (prefix / "opt" / "proxmark3").resolve()
+        if upgrade and (active == keg or (reuse and active != reuse)):
+            raise Stop("Homebrew did not activate the expected newer client.")
         client = active / "bin" / "proxmark3"
         run([client, "--incognito", "--version"], env=env)
         receipt = read_json(active / "INSTALL_RECEIPT.json")
         if device["model"] == "PM5":
-            image = firmware_image(brew, prefix, active, receipt, state, env, folder)
+            image = firmware_image(brew, prefix, receipt, state, env, folder)
         else:
             flags = receipt.get("used_options", [])
             if "--with-blueshark" not in flags or any(flag in flags for flag in ("--with-generic", "--with-small")):
@@ -367,8 +442,8 @@ def perform(args, brew, prefix, wrapper, port, keg, before, device, env):
                          "fullimage_sha256": digest(image), "flash_started": False})
         (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if device["model"] == "PM5":
-            confirm("Power off the PM5, unplug USB, detach the BWM with its battery still attached, "
-                    "then reconnect top USB normally. Is the BWM detached and USB reconnected?")
+            confirm("Keep the PM5 connected through the top USB-C port by the yellow button. "
+                    "The BWM can stay attached. Ready to write the main firmware?")
         else:
             confirm("Keep this RDV4 connected by USB. Ready to write its main firmware?")
         port = usb_port(wrapper)
@@ -406,12 +481,10 @@ def perform(args, brew, prefix, wrapper, port, keg, before, device, env):
         manifest["verified"] = True
         (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         print("Client and main firmware verified. Backup: {}".format(folder))
-        if device["model"] == "PM5":
-            print("Power off and unplug USB before reinstalling the BWM.")
     except BaseException:
         if host_changed and not flash_started:
             try:
-                restore_client(brew, keg, env)
+                link_client(brew, keg, env)
                 run([old_client, "--incognito", "--version"], env=env)
                 print("Restored the previous client; device firmware was not changed.", file=sys.stderr)
             except Stop:
@@ -423,6 +496,10 @@ def perform(args, brew, prefix, wrapper, port, keg, before, device, env):
         raise
     finally:
         run([brew, "pin", FORMULA], env=env)
+    try:
+        rotate_backups(folder, device)
+    except (OSError, Stop) as exc:
+        print("Update verified, but backup rotation stopped: {}".format(exc), file=sys.stderr)
 
 
 def main(argv=None):
