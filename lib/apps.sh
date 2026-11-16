@@ -661,6 +661,18 @@ install_1password_cli_macos() {
     local op_bin=""
 
     if onepassword_cli_installed; then
+        op_bin="$(command -v op)"
+        if [ "$DRY_RUN" = "1" ]; then
+            SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
+            print_skip "1Password CLI already installed (would clear quarantine before checking version)"
+            return 0
+        fi
+
+        # Upgrades can restore quarantine; clear it before op --version can prompt.
+        if ! clear_quarantine_if_present "$op_bin"; then
+            return 1
+        fi
+
         SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1))
         print_skip "1Password CLI already installed ($(onepassword_cli_version || true))"
         return 0

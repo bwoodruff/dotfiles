@@ -358,6 +358,7 @@ Install order on macOS:
 Notes:
 
 - Desktop app uses its built-in auto-updater
+- On macOS, CLI quarantine is cleared before checking its version on every run, including when it is already installed or was upgraded earlier in the run. If clearing fails, the CLI is not executed.
 - The script does **not** modify 1Password application settings inside the apps
 - **`mas`** is installed with Homebrew during **package checks** on macOS (same as `git`, `gh`, etc.); on Linux the installer **skips** `mas` because it is Mac App Store–only
 - Mac App Store installs need an Apple ID session in the App Store app; the installer cannot sign in for you. If `mas` fails for account reasons, **Next steps** tells you to open the App Store, sign in, and re-run
