@@ -44,7 +44,7 @@ Options:
   --no-auto-update           Do not fetch origin / pull / re-exec when behind (see DOTFILES_AUTO_UPDATE)
   --strict-optional-configs  Treat missing optional config sources as warnings
   --no-schedule              Do not create/check weekly scheduled run
-  --no-upgrade               Skip package-manager update/upgrade step
+  --no-upgrade               Skip package-manager and Proxmark Studio upgrades
   -h, --help                 Show this help
 EOF
 }
@@ -236,6 +236,7 @@ TASKS=(
     "Package upgrades|upgrade_packages|all|0"
     "Package checks|task_package_checks|all|0"
     "Proxmark startup check|check_proxmark_client|mac|0"
+    "Proxmark Studio|install_or_update_proxmark_studio|mac|0"
     "Alacritty|install_or_update_alacritty|all|0"
     "Git|task_git|all|0"
     "GitHub Desktop|install_github_desktop|mac|0"

@@ -56,6 +56,7 @@ The bootstrap script runs in phases for setup, tooling, configuration, and valid
   - Alacritty
   - GitHub CLI (`gh`)
   - GitHub Desktop
+  - Proxmark Studio (macOS; installs and updates from tagged GitHub releases)
   - Alfred (Homebrew cask when no existing install, or when `--force-brew` overrides a non-Homebrew copy)
   - 1Password (desktop, **1Password for Safari** via `mas` + Mac App Store, CLI)
   - GPG
@@ -90,6 +91,16 @@ The PM3 uses the Homebrew firmware built with Blueshark support. The PM5 firmwar
 This command handles routine **main firmware** updates. Bootloader, PM5 FPGA, and BWM firmware changes need a separate review of the upstream instructions; it does not run the initial provisioning script or change battery settings. For the first full flash, follow the [upstream PM5 setup guide](https://github.com/RfidResearchGroup/proxmark3/blob/master/doc/md/PM5_Start_Here/Getting_Started_With_PM5.md#assumptions), which calls for disconnecting the BWM. Review BWM handling separately before a later bootloader update. An incompatible client or unidentified device stops the update before any changes, so an untested PM3 or a device moved to the other Mac may need a supervised compatibility check first.
 
 The updater must be run locally and interactively. No connected device means no client or firmware update. If the firmware already matches the client and there is no newer client available, it exits without flashing.
+
+### Proxmark Studio
+
+On macOS, the bootstrap installs [Proxmark Studio](https://github.com/RfidResearchGroup/ProxmarkStudio) into `/Applications/Proxmark Studio.app` and checks for updates on each normal/weekly run. It follows the latest **tagged release**, not the rolling development build, selects the Mac's architecture, and verifies the download against GitHub's SHA-256. `--no-upgrade` leaves an existing installation alone; `--dry-run` does not download or change anything. If Studio is open, replacement is deferred until a later bootstrap run.
+
+The downloaded bundle is checked before replacement, and an installation failure restores the previous app. Upstream's first release has an incomplete ad-hoc bundle signature; the installer applies the same local ad-hoc signing step now used by upstream CI when necessary. It removes quarantine only from the downloaded app. This does not give the app Apple notarization. Release identity is recorded in `~/.local/state/dotfiles/proxmark-studio.json` (or under `XDG_STATE_HOME`).
+
+Studio **embeds its own Proxmark client**; it does not use the pinned Homebrew executable. The bootstrap installs the GUI without connecting to or flashing a device. Check client/firmware compatibility before using a newly updated Studio, and handle device updates through the manual process above. Studio has its own workspace under `~/Library/Application Support/cn.forestweave.proxmarkstudio`; the CLI workspace is separate.
+
+The upstream iOS download is an **unsigned app archive**, requiring separate signing/provisioning and installation on each device. The PM5 BWM can connect through BLE. Studio does not support iOS USB serial or Bluetooth SPP, so the PM3 Blueshark cannot connect directly through its classic Bluetooth link. See the [upstream build and iOS notes](https://github.com/RfidResearchGroup/ProxmarkStudio/blob/main/docs/DEVELOPMENT.md); the Mac bootstrap does not manage iOS signing or installation.
 
 ---
 

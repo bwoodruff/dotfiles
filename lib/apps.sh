@@ -117,6 +117,34 @@ install_github_desktop() {
 }
 
 #######################################
+# Proxmark Studio (macOS)
+#######################################
+
+install_or_update_proxmark_studio() {
+    is_macos || return 0
+    if ! command_exists python3; then
+        print_error "Python 3 is required to install Proxmark Studio"
+        mark_validated_fail
+        return 1
+    fi
+
+    local args=("$DOTFILES_DIR/lib/proxmark_studio.py") output=""
+    [ "$DRY_RUN" = "1" ] && args+=(--dry-run)
+    [ "$UPGRADE_PACKAGES" = "0" ] && args+=(--no-upgrade)
+    print_info "Checking Proxmark Studio tagged release"
+    if ! output="$(XDG_STATE_HOME="$STATE_HOME" python3 "${args[@]}" 2>&1)"; then
+        print_error "$output"
+        mark_validated_fail
+        return 1
+    fi
+    case "$output" in
+        installed:*) INSTALLED_PACKAGES=$((INSTALLED_PACKAGES + 1)); print_ok "$output" ;;
+        updated:*) UPGRADED_PACKAGES=$((UPGRADED_PACKAGES + 1)); print_ok "$output" ;;
+        *) SKIPPED_PACKAGES=$((SKIPPED_PACKAGES + 1)); print_skip "$output" ;;
+    esac
+}
+
+#######################################
 # Alfred (macOS)
 #######################################
 
